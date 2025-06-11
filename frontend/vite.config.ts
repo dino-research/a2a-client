@@ -14,12 +14,17 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Proxy API requests to the backend server
+      // Proxy API requests to the Gemini backend server
       "/api": {
-        target: "http://127.0.0.1:8000", // Default backend address
+        target: "http://127.0.0.1:2024", // Gemini backend on port 2024
         changeOrigin: true,
         // Optionally rewrite path if needed (e.g., remove /api prefix if backend doesn't expect it)
         // rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      // Proxy assistants endpoint directly to backend
+      "/assistants": {
+        target: "http://127.0.0.1:2024",
+        changeOrigin: true,
       },
     },
   },

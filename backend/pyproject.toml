@@ -1,7 +1,7 @@
 [project]
 name = "agent"
 version = "0.0.1"
-description = "Backend for the LangGraph agent"
+description = "Backend for the ADK agent"
 authors = [
     { name = "Philipp Schmid", email = "schmidphilipp1995@gmail.com" },
 ]
@@ -9,15 +9,14 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "langgraph>=0.2.6",
-    "langchain>=0.3.19",
-    "langchain-google-genai",
-    "python-dotenv>=1.0.1",
-    "langgraph-sdk>=0.1.57",
-    "langgraph-cli",
-    "langgraph-api",
-    "fastapi",
+    "google-adk>=1.0.0",
     "google-genai",
+    "python-dotenv>=1.0.1",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "requests>=2.31.0",
+    "pydantic>=2.5.0",
+    "ipykernel>=6.29.5",
 ]
 
 
@@ -54,6 +53,5 @@ convention = "google"
 
 [dependency-groups]
 dev = [
-    "langgraph-cli[inmem]>=0.1.71",
     "pytest>=8.3.5",
 ]

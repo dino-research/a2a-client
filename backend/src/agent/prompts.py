@@ -1,96 +1,154 @@
+"""
+Prompts and instructions for the Gemini Research Agent.
+Contains all system prompts and response templates.
+"""
+
 from datetime import datetime
+from typing import Dict, Any
 
 
-# Get current date in a readable format
-def get_current_date():
-    return datetime.now().strftime("%B %d, %Y")
+def get_research_prompt(query: str) -> str:
+    """
+    Generate the main research prompt for Gemini with grounded search.
+    
+    Args:
+        query (str): User's question/query
+        
+    Returns:
+        str: Formatted prompt for Gemini API
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    
+    return f"""Tìm hiểu và trả lời câu hỏi sau bằng tiếng Việt: {query}
+
+Hướng dẫn:
+- Sử dụng Google Search để tìm thông tin mới nhất và chính xác
+- Ngày hiện tại là {current_date}
+- Cung cấp câu trả lời chi tiết và hữu ích
+- Nếu là câu hỏi về thời tiết, hãy tập trung vào dữ liệu thời gian thực
+- Nếu là câu hỏi về tin tức, hãy cung cấp thông tin cập nhật nhất
+- Trích dẫn nguồn khi có thể
+- Trả lời bằng tiếng Việt một cách tự nhiên và dễ hiểu"""
 
 
-query_writer_instructions = """Your goal is to generate sophisticated and diverse web search queries. These queries are intended for an advanced automated web research tool capable of analyzing complex results, following links, and synthesizing information.
-
-Instructions:
-- Always prefer a single search query, only add another query if the original question requests multiple aspects or elements and one query is not enough.
-- Each query should focus on one specific aspect of the original question.
-- Don't produce more than {number_queries} queries.
-- Queries should be diverse, if the topic is broad, generate more than 1 query.
-- Don't generate multiple similar queries, 1 is enough.
-- Query should ensure that the most current information is gathered. The current date is {current_date}.
-
-Format: 
-- Format your response as a JSON object with ALL three of these exact keys:
-   - "rationale": Brief explanation of why these queries are relevant
-   - "query": A list of search queries
-
-Example:
-
-Topic: What revenue grew more last year apple stock or the number of people buying an iphone
-```json
-{{
-    "rationale": "To answer this comparative growth question accurately, we need specific data points on Apple's stock performance and iPhone sales metrics. These queries target the precise financial information needed: company revenue trends, product-specific unit sales figures, and stock price movement over the same fiscal period for direct comparison.",
-    "query": ["Apple total revenue growth fiscal year 2024", "iPhone unit sales growth fiscal year 2024", "Apple stock price growth fiscal year 2024"],
-}}
-```
-
-Context: {research_topic}"""
+def get_error_message(error: str) -> str:
+    """
+    Generate error message in Vietnamese.
+    
+    Args:
+        error (str): Error description
+        
+    Returns:
+        str: Formatted error message
+    """
+    return f"Xin lỗi, đã xảy ra lỗi khi tìm kiếm thông tin: {error}"
 
 
-web_searcher_instructions = """Conduct targeted Google Searches to gather the most recent, credible information on "{research_topic}" and synthesize it into a verifiable text artifact.
+def get_system_instructions() -> Dict[str, Any]:
+    """
+    Get system-wide instructions and configurations.
+    
+    Returns:
+        Dict[str, Any]: System instructions and configurations
+    """
+    return {
+        "agent_description": "Gemini Research Agent using Google Agent Development Kit",
+        "supported_languages": ["vi", "en"],
+        "primary_language": "vi",
+        "search_tools": ["google_search"],
+        "response_format": "markdown",
+        "temperature": 0.2,
+        "max_tokens": 4096,
+        "streaming": True
+    }
 
-Instructions:
-- Query should ensure that the most current information is gathered. The current date is {current_date}.
-- Conduct multiple, diverse searches to gather comprehensive information.
-- Consolidate key findings while meticulously tracking the source(s) for each specific piece of information.
-- The output should be a well-written summary or report based on your search findings. 
-- Only include the information found in the search results, don't make up any information.
 
-Research Topic:
-{research_topic}
-"""
+def get_model_config() -> Dict[str, Any]:
+    """
+    Get Gemini model configuration.
+    
+    Returns:
+        Dict[str, Any]: Model configuration parameters
+    """
+    return {
+        "tools": [{"google_search": {}}],
+        "temperature": 0.2,
+        "top_p": 0.95,
+        "top_k": 40,
+        "candidate_count": 1,
+        "max_output_tokens": 4096,
+        "stop_sequences": []
+    }
 
-reflection_instructions = """You are an expert research assistant analyzing summaries about "{research_topic}".
 
-Instructions:
-- Identify knowledge gaps or areas that need deeper exploration and generate a follow-up query. (1 or multiple).
-- If provided summaries are sufficient to answer the user's question, don't generate a follow-up query.
-- If there is a knowledge gap, generate a follow-up query that would help expand your understanding.
-- Focus on technical details, implementation specifics, or emerging trends that weren't fully covered.
+# Template messages for different scenarios
+WELCOME_MESSAGE = """Xin chào! Tôi là trợ lý AI được hỗ trợ bởi Google Gemini và Agent Development Kit. 
+Tôi có thể giúp bạn tìm kiếm thông tin, trả lời câu hỏi và nghiên cứu các chủ đề khác nhau. 
+Hãy đặt câu hỏi cho tôi!"""
 
-Requirements:
-- Ensure the follow-up query is self-contained and includes necessary context for web search.
+NO_QUERY_MESSAGE = "Xin lỗi, tôi không nhận được câu hỏi nào từ bạn. Vui lòng đặt câu hỏi để tôi có thể giúp đỡ."
 
-Output Format:
-- Format your response as a JSON object with these exact keys:
-   - "is_sufficient": true or false
-   - "knowledge_gap": Describe what information is missing or needs clarification
-   - "follow_up_queries": Write a specific question to address this gap
+PROCESSING_MESSAGE = "Đang xử lý câu hỏi của bạn và tìm kiếm thông tin..."
 
-Example:
-```json
-{{
-    "is_sufficient": true, // or false
-    "knowledge_gap": "The summary lacks information about performance metrics and benchmarks", // "" if is_sufficient is true
-    "follow_up_queries": ["What are typical performance benchmarks and metrics used to evaluate [specific technology]?"] // [] if is_sufficient is true
-}}
-```
+SUCCESS_MESSAGE_TEMPLATE = "Đã hoàn thành tìm kiếm và phân tích {source_count} nguồn thông tin."
 
-Reflect carefully on the Summaries to identify knowledge gaps and produce a follow-up query. Then, produce your output following this JSON format:
+# Event type descriptions for streaming
+EVENT_DESCRIPTIONS = {
+    "generate_query": "Generating search queries",
+    "web_research": "Researching information from web sources", 
+    "reflection": "Analyzing and reflecting on gathered information",
+    "finalize_answer": "Finalizing and formatting the response",
+    "message": "Sending final response",
+    "error": "Error occurred during processing"
+}
 
-Summaries:
-{summaries}
-"""
 
-answer_instructions = """Generate a high-quality answer to the user's question based on the provided summaries.
+def get_health_check_response() -> Dict[str, Any]:
+    """
+    Get health check response data.
+    
+    Returns:
+        Dict[str, Any]: Health check information
+    """
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "agent": "gemini_research_agent",
+        "version": "1.0.0",
+        "framework": "google_adk",
+        "capabilities": [
+            "web_search",
+            "vietnamese_responses", 
+            "real_time_information",
+            "source_citation",
+            "streaming_responses"
+        ]
+    }
 
-Instructions:
-- The current date is {current_date}.
-- You are the final step of a multi-step research process, don't mention that you are the final step. 
-- You have access to all the information gathered from the previous steps.
-- You have access to the user's question.
-- Generate a high-quality answer to the user's question based on the provided summaries and the user's question.
-- you MUST include all the citations from the summaries in the answer correctly.
 
-User Context:
-- {research_topic}
-
-Summaries:
-{summaries}"""
+def get_api_description() -> Dict[str, Any]:
+    """
+    Get API description and metadata.
+    
+    Returns:
+        Dict[str, Any]: API description
+    """
+    return {
+        "name": "Gemini Research Agent API",
+        "description": "AI research assistant powered by Google Agent Development Kit",
+        "version": "1.0.0",
+        "framework": "Google ADK + Gemini API",
+        "features": [
+            "Real-time web search integration",
+            "Vietnamese language support",
+            "Streaming responses",
+            "Source attribution",
+            "Weather and news queries",
+            "General knowledge Q&A"
+        ],
+        "endpoints": {
+            "/assistants/{id}/runs": "Create and stream research responses",
+            "/health": "Health check",
+            "/docs": "API documentation"
+        }
+    } 

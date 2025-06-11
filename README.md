@@ -1,108 +1,298 @@
-# Gemini Fullstack LangGraph Quickstart
+# Gemini Research Agent - Google ADK
 
-This project demonstrates a fullstack application using a React frontend and a LangGraph-powered backend agent. The agent is designed to perform comprehensive research on a user's query by dynamically generating search terms, querying the web using Google Search, reflecting on the results to identify knowledge gaps, and iteratively refining its search until it can provide a well-supported answer with citations. This application serves as an example of building research-augmented conversational AI using LangGraph and Google's Gemini models.
+A fullstack AI research assistant powered by Google Agent Development Kit (ADK) and Gemini API. This application demonstrates building intelligent conversational AI that can perform web research, answer questions in Vietnamese, and provide real-time information with source citations.
 
-![Gemini Fullstack LangGraph](./app.png)
+![Gemini Research Agent](./app.png)
 
 ## Features
 
-- 💬 Fullstack application with a React frontend and LangGraph backend.
-- 🧠 Powered by a LangGraph agent for advanced research and conversational AI.
-- 🔍 Dynamic search query generation using Google Gemini models.
-- 🌐 Integrated web research via Google Search API.
-- 🤔 Reflective reasoning to identify knowledge gaps and refine searches.
-- 📄 Generates answers with citations from gathered sources.
-- 🔄 Hot-reloading for both frontend and backend development during development.
+- 🤖 **AI Research Assistant**: Powered by Google Gemini and Agent Development Kit
+- 🔍 **Real-time Web Search**: Integrated Google Search with source attribution  
+- 🇻🇳 **Vietnamese Language Support**: Natural responses in Vietnamese
+- 📡 **Streaming Responses**: Real-time response streaming with activity timeline
+- 🌐 **Modern Web Interface**: React frontend with beautiful UI components
+- ⚡ **High Performance**: Optimized for speed and reliability
+- 🔄 **Hot Reloading**: Development-friendly with automatic reloading
+
+## Technology Stack
+
+### Frontend
+- **React 19** with TypeScript
+- **Vite** for fast development and building
+- **Tailwind CSS** for styling
+- **Shadcn/ui** components
+- **React Markdown** for rendering responses
+
+### Backend  
+- **Google Agent Development Kit (ADK)**
+- **Google Gemini API** (2.0 Flash, 2.5 Flash, 2.5 Pro)
+- **FastAPI** for HTTP server
+- **Google Search** integration for web research
+- **Server-Sent Events (SSE)** for streaming
 
 ## Project Structure
 
-The project is divided into two main directories:
+```
+├── frontend/           # React application
+│   ├── src/
+│   │   ├── components/ # UI components  
+│   │   ├── lib/        # Utilities
+│   │   └── App.tsx     # Main application
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/            # Python backend
+│   ├── src/agent/
+│   │   ├── server.py   # FastAPI server
+│   │   ├── prompts.py  # AI prompts and configurations
+│   │   └── adk_agent.py # ADK agent implementation
+│   └── pyproject.toml
+├── Makefile           # Development commands
+└── README.md
+```
 
--   `frontend/`: Contains the React application built with Vite.
--   `backend/`: Contains the LangGraph/FastAPI application, including the research agent logic.
+## Prerequisites
 
-## Getting Started: Development and Local Testing
+Before getting started, make sure you have:
 
-Follow these steps to get the application running locally for development and testing.
+- **Node.js 18+** and npm
+- **Python 3.11+** 
+- **Google Gemini API Key** - Get yours from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
-**1. Prerequisites:**
+## Quick Start
 
--   Node.js and npm (or yarn/pnpm)
--   Python 3.8+
--   **`GEMINI_API_KEY`**: The backend agent requires a Google Gemini API key.
-    1.  Navigate to the `backend/` directory.
-    2.  Create a file named `.env` by copying the `backend/.env.example` file.
-    3.  Open the `.env` file and add your Gemini API key: `GEMINI_API_KEY="YOUR_ACTUAL_API_KEY"`
+### 1. Clone and Setup Environment
 
-**2. Install Dependencies:**
+```bash
+git clone <repository-url>
+cd a2a-client
+```
 
-**Backend:**
+### 2. Configure Google Gemini API
+
+Create a `.env` file in the `backend/` directory:
 
 ```bash
 cd backend
-pip install .
+cp .env.example .env
+```
+
+Edit `.env` and add your API key:
+```env
+GEMINI_API_KEY="your_actual_gemini_api_key_here"
+```
+
+### 3. Install Dependencies
+
+**Backend:**
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e .
 ```
 
 **Frontend:**
-
 ```bash
 cd frontend
 npm install
 ```
 
-**3. Run Development Servers:**
+### 4. Run Development Servers
 
-**Backend & Frontend:**
-
+**Option A: Run both servers with one command**
 ```bash
 make dev
 ```
-This will run the backend and frontend development servers.    Open your browser and navigate to the frontend development server URL (e.g., `http://localhost:5173/app`).
 
-_Alternatively, you can run the backend and frontend development servers separately. For the backend, open a terminal in the `backend/` directory and run `langgraph dev`. The backend API will be available at `http://127.0.0.1:2024`. It will also open a browser window to the LangGraph UI. For the frontend, open a terminal in the `frontend/` directory and run `npm run dev`. The frontend will be available at `http://localhost:5173`._
+**Option B: Run servers separately**
 
-## How the Backend Agent Works (High-Level)
+Backend (Terminal 1):
+```bash
+make dev-backend
+# Or manually: cd backend && source .venv/bin/activate && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024 --reload
+```
 
-The core of the backend is a LangGraph agent defined in `backend/src/agent/graph.py`. It follows these steps:
+Frontend (Terminal 2):
+```bash
+make dev-frontend  
+# Or manually: cd frontend && npm run dev
+```
 
-![Agent Flow](./agent.png)
+### 5. Access the Application
 
-1.  **Generate Initial Queries:** Based on your input, it generates a set of initial search queries using a Gemini model.
-2.  **Web Research:** For each query, it uses the Gemini model with the Google Search API to find relevant web pages.
-3.  **Reflection & Knowledge Gap Analysis:** The agent analyzes the search results to determine if the information is sufficient or if there are knowledge gaps. It uses a Gemini model for this reflection process.
-4.  **Iterative Refinement:** If gaps are found or the information is insufficient, it generates follow-up queries and repeats the web research and reflection steps (up to a configured maximum number of loops).
-5.  **Finalize Answer:** Once the research is deemed sufficient, the agent synthesizes the gathered information into a coherent answer, including citations from the web sources, using a Gemini model.
+Open your browser and navigate to:
+- **Frontend**: http://localhost:5173/app/
+- **Backend API**: http://localhost:2024
+- **API Documentation**: http://localhost:2024/docs
+
+## How It Works
+
+### 1. Research Pipeline
+
+The AI agent follows this research process:
+
+1. **Query Analysis**: Receives user question in Vietnamese
+2. **Search Generation**: Creates relevant search queries
+3. **Web Research**: Searches Google for current information
+4. **Source Collection**: Gathers and analyzes web sources
+5. **Reflection**: Evaluates information sufficiency
+6. **Answer Generation**: Creates comprehensive response with citations
+
+### 2. Streaming Architecture
+
+```mermaid
+graph LR
+    A[User Query] --> B[Frontend]
+    B --> C[FastAPI Server]
+    C --> D[Gemini API]
+    D --> E[Google Search]
+    E --> F[Response Generation]
+    F --> G[SSE Stream]
+    G --> B
+```
+
+The application uses Server-Sent Events (SSE) for real-time streaming:
+- **generate_query**: Shows search query generation
+- **web_research**: Displays found sources  
+- **reflection**: Shows analysis progress
+- **finalize_answer**: Presents final response
+- **message**: Sends complete answer with sources
+
+### 3. Supported Features
+
+- **Weather Queries**: Real-time weather information
+- **News & Current Events**: Latest news and updates
+- **General Questions**: Knowledge-based Q&A
+- **Vietnamese Responses**: Natural language in Vietnamese
+- **Source Attribution**: Links to original sources
+- **Multiple Models**: Choose between Gemini 2.0/2.5 variants
+
+## Configuration
+
+### Model Selection
+
+The application supports multiple Gemini models:
+- `gemini-2.0-flash`: Fast responses, good for general queries
+- `gemini-2.5-flash-preview-04-17`: Enhanced capabilities  
+- `gemini-2.5-pro-preview-05-06`: Most advanced reasoning
+
+### Research Intensity
+
+Configure research depth:
+- **Low**: 1 search query, 1 research loop
+- **Medium**: 3 search queries, 3 research loops  
+- **High**: 5 search queries, 10 research loops
+
+### Prompts Customization
+
+Edit `backend/src/agent/prompts.py` to customize:
+- System instructions
+- Research prompts
+- Error messages
+- Model configurations
+
+## API Endpoints
+
+### Core Endpoints
+
+- `POST /assistants/{id}/runs` - Create research session
+- `GET /health` - Health check with system status
+- `GET /` - API information and capabilities
+
+### Example API Usage
+
+```bash
+curl -X POST http://localhost:2024/assistants/agent/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"type": "human", "content": "Thời tiết Hà Nội hôm nay?", "id": "1"}],
+    "initial_search_query_count": 3,
+    "max_research_loops": 2,
+    "reasoning_model": "gemini-2.0-flash"
+  }'
+```
+
+## Development
+
+### Available Commands
+
+```bash
+make help              # Show available commands
+make install-backend   # Install backend dependencies  
+make dev-frontend      # Start frontend dev server
+make dev-backend       # Start backend dev server
+make dev               # Start both servers
+```
+
+### File Structure
+
+- `server.py`: Main FastAPI application
+- `prompts.py`: AI prompts and configurations
+- `adk_agent.py`: Google ADK agent implementation
+- Frontend components in `frontend/src/components/`
+
+### Adding New Features
+
+1. **New Prompts**: Add to `prompts.py`
+2. **API Endpoints**: Extend `server.py`
+3. **UI Components**: Create in `frontend/src/components/`
+4. **Agent Logic**: Modify `adk_agent.py`
 
 ## Deployment
 
-In production, the backend server serves the optimized static frontend build. LangGraph requires a Redis instance and a Postgres database. Redis is used as a pub-sub broker to enable streaming real time output from background runs. Postgres is used to store assistants, threads, runs, persist thread state and long term memory, and to manage the state of the background task queue with 'exactly once' semantics. For more details on how to deploy the backend server, take a look at the [LangGraph Documentation](https://langchain-ai.github.io/langgraph/concepts/deployment_options/). Below is an example of how to build a Docker image that includes the optimized frontend build and the backend server and run it via `docker-compose`.
+### Production Build
 
-_Note: For the docker-compose.yml example you need a LangSmith API key, you can get one from [LangSmith](https://smith.langchain.com/settings)._
+1. **Build Frontend**:
+```bash
+cd frontend && npm run build
+```
 
-_Note: If you are not running the docker-compose.yml example or exposing the backend server to the public internet, you update the `apiUrl` in the `frontend/src/App.tsx` file your host. Currently the `apiUrl` is set to `http://localhost:8123` for docker-compose or `http://localhost:2024` for development._
+2. **Configure Environment**:
+```bash
+export GEMINI_API_KEY="your_production_key"
+```
 
-**1. Build the Docker Image:**
+3. **Run Production Server**:
+```bash
+cd backend && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024
+```
 
-   Run the following command from the **project root directory**:
-   ```bash
-   docker build -t gemini-fullstack-langgraph -f Dockerfile .
-   ```
-**2. Run the Production Server:**
+### Docker Deployment
 
-   ```bash
-   GEMINI_API_KEY=<your_gemini_api_key> LANGSMITH_API_KEY=<your_langsmith_api_key> docker-compose up
-   ```
+```bash
+docker build -t gemini-research-agent .
+docker run -e GEMINI_API_KEY="your_key" -p 2024:2024 gemini-research-agent
+```
 
-Open your browser and navigate to `http://localhost:8123/app/` to see the application. The API will be available at `http://localhost:8123`.
+## Troubleshooting
 
-## Technologies Used
+### Common Issues
 
-- [React](https://reactjs.org/) (with [Vite](https://vitejs.dev/)) - For the frontend user interface.
-- [Tailwind CSS](https://tailwindcss.com/) - For styling.
-- [Shadcn UI](https://ui.shadcn.com/) - For components.
-- [LangGraph](https://github.com/langchain-ai/langgraph) - For building the backend research agent.
-- [Google Gemini](https://ai.google.dev/models/gemini) - LLM for query generation, reflection, and answer synthesis.
+1. **API Key Error**: Ensure `GEMINI_API_KEY` is set correctly
+2. **Port Conflicts**: Change ports in `vite.config.ts` and `server.py`
+3. **Dependencies**: Run `pip install -e .` and `npm install`
+4. **Virtual Environment**: Activate with `source .venv/bin/activate`
+
+### Debugging
+
+- Check backend logs: `make dev-backend`
+- Test API directly: `curl http://localhost:2024/health`
+- Frontend proxy: Verify `vite.config.ts` proxy settings
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make changes and test thoroughly
+4. Submit a pull request
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details. 
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- **Google Agent Development Kit** for the AI framework
+- **Google Gemini** for the language models
+- **Google Search** for web research capabilities
+- **React** and **FastAPI** communities for excellent tools 

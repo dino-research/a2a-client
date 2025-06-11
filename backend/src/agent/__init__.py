@@ -1,3 +1,8 @@
-from agent.graph import graph
+"""
+Gemini Research Agent using Google Agent Development Kit.
+"""
 
-__all__ = ["graph"]
+from .server import app
+from .prompts import get_research_prompt, get_model_config
+
+__all__ = ["app", "get_research_prompt", "get_model_config"]

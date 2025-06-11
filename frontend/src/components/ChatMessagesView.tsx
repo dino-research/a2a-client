@@ -1,5 +1,4 @@
 import type React from "react";
-import type { Message } from "@langchain/langgraph-sdk";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Copy, CopyCheck } from "lucide-react";
 import { InputForm } from "@/components/InputForm";
@@ -11,9 +10,23 @@ import { Badge } from "@/components/ui/badge";
 import {
   ActivityTimeline,
   ProcessedEvent,
-} from "@/components/ActivityTimeline"; // Assuming ActivityTimeline is in the same dir or adjust path
+} from "@/components/ActivityTimeline";
+
+// Define our own Message type since we're not using LangChain anymore
+interface Message {
+  type: "human" | "ai";
+  content: string;
+  id: string;
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet?: string;
+    label?: string;
+  }>;
+}
 
 // Markdown component props type from former ReportView
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MdComponentProps = {
   className?: string;
   children?: ReactNode;
@@ -226,6 +239,7 @@ interface ChatMessagesViewProps {
   scrollAreaRef: React.RefObject<HTMLDivElement | null>;
   onSubmit: (inputValue: string, effort: string, model: string) => void;
   onCancel: () => void;
+  onNewSearch?: () => void;
   liveActivityEvents: ProcessedEvent[];
   historicalActivities: Record<string, ProcessedEvent[]>;
 }
@@ -236,6 +250,7 @@ export function ChatMessagesView({
   scrollAreaRef,
   onSubmit,
   onCancel,
+  onNewSearch,
   liveActivityEvents,
   historicalActivities,
 }: ChatMessagesViewProps) {
@@ -314,6 +329,7 @@ export function ChatMessagesView({
         onSubmit={onSubmit}
         isLoading={isLoading}
         onCancel={onCancel}
+        onNewSearch={onNewSearch}
         hasHistory={messages.length > 0}
       />
     </div>

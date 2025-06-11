@@ -1,20 +1,25 @@
-.PHONY: help dev-frontend dev-backend dev
+.PHONY: help dev-frontend dev-backend dev install-backend
 
 help:
 	@echo "Available commands:"
 	@echo "  make dev-frontend    - Starts the frontend development server (Vite)"
-	@echo "  make dev-backend     - Starts the backend development server (Uvicorn with reload)"
+	@echo "  make dev-backend     - Starts the Gemini backend development server (FastAPI)"
 	@echo "  make dev             - Starts both frontend and backend development servers"
+	@echo "  make install-backend - Install backend dependencies"
+
+install-backend:
+	@echo "Installing Gemini backend dependencies..."
+	@cd backend && source .venv/bin/activate && pip install -e .
 
 dev-frontend:
 	@echo "Starting frontend development server..."
 	@cd frontend && npm run dev
 
 dev-backend:
-	@echo "Starting backend development server..."
-	@cd backend && langgraph dev
+	@echo "Starting Gemini backend development server..."
+	@cd backend && source .venv/bin/activate && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024 --reload
 
 # Run frontend and backend concurrently
 dev:
-	@echo "Starting both frontend and backend development servers..."
+	@echo "Starting both frontend and Gemini backend development servers..."
 	@make dev-frontend & make dev-backend 

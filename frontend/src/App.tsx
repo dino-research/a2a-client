@@ -1,11 +1,24 @@
-import { useStream } from "@langchain/langgraph-sdk/react";
-import type { Message } from "@langchain/langgraph-sdk";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ProcessedEvent } from "@/components/ActivityTimeline";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { ChatMessagesView } from "@/components/ChatMessagesView";
 
+// Define our own Message type since we're not using LangChain anymore
+interface Message {
+  type: "human" | "ai";
+  content: string;
+  id: string;
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet?: string;
+    label?: string;
+  }>;
+}
+
 export default function App() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [processedEventsTimeline, setProcessedEventsTimeline] = useState<
     ProcessedEvent[]
   >([]);
@@ -14,65 +27,7 @@ export default function App() {
   >({});
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
-
-  const thread = useStream<{
-    messages: Message[];
-    initial_search_query_count: number;
-    max_research_loops: number;
-    reasoning_model: string;
-  }>({
-    apiUrl: import.meta.env.DEV
-      ? "http://localhost:2024"
-      : "http://localhost:8123",
-    assistantId: "agent",
-    messagesKey: "messages",
-    onFinish: (event: any) => {
-      console.log(event);
-    },
-    onUpdateEvent: (event: any) => {
-      let processedEvent: ProcessedEvent | null = null;
-      if (event.generate_query) {
-        processedEvent = {
-          title: "Generating Search Queries",
-          data: event.generate_query.query_list.join(", "),
-        };
-      } else if (event.web_research) {
-        const sources = event.web_research.sources_gathered || [];
-        const numSources = sources.length;
-        const uniqueLabels = [
-          ...new Set(sources.map((s: any) => s.label).filter(Boolean)),
-        ];
-        const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
-        processedEvent = {
-          title: "Web Research",
-          data: `Gathered ${numSources} sources. Related to: ${
-            exampleLabels || "N/A"
-          }.`,
-        };
-      } else if (event.reflection) {
-        processedEvent = {
-          title: "Reflection",
-          data: event.reflection.is_sufficient
-            ? "Search successful, generating final answer."
-            : `Need more information, searching for ${event.reflection.follow_up_queries.join(
-                ", "
-              )}`,
-        };
-      } else if (event.finalize_answer) {
-        processedEvent = {
-          title: "Finalizing Answer",
-          data: "Composing and presenting the final answer.",
-        };
-        hasFinalizeEventOccurredRef.current = true;
-      }
-      if (processedEvent) {
-        setProcessedEventsTimeline((prevEvents) => [
-          ...prevEvents,
-          processedEvent!,
-        ]);
-      }
-    },
-  });
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -83,15 +38,15 @@ export default function App() {
         scrollViewport.scrollTop = scrollViewport.scrollHeight;
       }
     }
-  }, [thread.messages]);
+  }, [messages]);
 
   useEffect(() => {
     if (
       hasFinalizeEventOccurredRef.current &&
-      !thread.isLoading &&
-      thread.messages.length > 0
+      !isLoading &&
+      messages.length > 0
     ) {
-      const lastMessage = thread.messages[thread.messages.length - 1];
+      const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.type === "ai" && lastMessage.id) {
         setHistoricalActivities((prev) => ({
           ...prev,
@@ -100,18 +55,32 @@ export default function App() {
       }
       hasFinalizeEventOccurredRef.current = false;
     }
-  }, [thread.messages, thread.isLoading, processedEventsTimeline]);
+  }, [messages, isLoading, processedEventsTimeline]);
 
   const handleSubmit = useCallback(
-    (submittedInputValue: string, effort: string, model: string) => {
-      if (!submittedInputValue.trim()) return;
+    async (submittedInputValue: string, effort: string, model: string) => {
+      console.log("handleSubmit called with:", { submittedInputValue, effort, model });
+      
+      if (!submittedInputValue.trim()) {
+        console.log("Empty input, returning");
+        return;
+      }
+      
+      setIsLoading(true);
       setProcessedEventsTimeline([]);
       hasFinalizeEventOccurredRef.current = false;
 
-      // convert effort to, initial_search_query_count and max_research_loops
-      // low means max 1 loop and 1 query
-      // medium means max 3 loops and 3 queries
-      // high means max 10 loops and 5 queries
+      // Add user message immediately
+      const userMessage: Message = {
+        type: "human",
+        content: submittedInputValue,
+        id: Date.now().toString(),
+      };
+
+      const newMessages = [...messages, userMessage];
+      setMessages(newMessages);
+
+      // Convert effort to parameters
       let initial_search_query_count = 0;
       let max_research_loops = 0;
       switch (effort) {
@@ -129,50 +98,191 @@ export default function App() {
           break;
       }
 
-      const newMessages: Message[] = [
-        ...(thread.messages || []),
-        {
-          type: "human",
-          content: submittedInputValue,
-          id: Date.now().toString(),
-        },
-      ];
-      thread.submit({
+      const payload = {
         messages: newMessages,
-        initial_search_query_count: initial_search_query_count,
-        max_research_loops: max_research_loops,
+        initial_search_query_count,
+        max_research_loops,
         reasoning_model: model,
-      });
+      };
+
+      console.log("Sending request to backend:", payload);
+
+      try {
+        // Create abort controller
+        abortControllerRef.current = new AbortController();
+
+        const response = await fetch("/assistants/agent/runs", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("Response body is not readable");
+        }
+
+        let assistantMessage: Message | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = new TextDecoder().decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                console.log("Received event:", data);
+
+                if (data.event_type) {
+                  handleStreamEvent(data);
+                }
+
+                // Check if this is the final message
+                if (data.event_type === "message" && data.data.type === "ai") {
+                  assistantMessage = {
+                    type: "ai",
+                    content: data.data.content,
+                    id: data.data.id,
+                    sources: data.data.sources || [],
+                  };
+                }
+              } catch (e) {
+                console.error("Error parsing SSE data:", e);
+              }
+            }
+          }
+        }
+
+        // Add assistant message if we got one
+        if (assistantMessage) {
+          setMessages(prev => [...prev, assistantMessage!]);
+        }
+
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('Request was cancelled');
+        } else {
+          console.error("Error sending request:", error);
+          // Add error message
+          const errorMessage: Message = {
+            type: "ai",
+            content: `Xin lỗi, đã xảy ra lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            id: Date.now().toString(),
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        }
+      } finally {
+        setIsLoading(false);
+        abortControllerRef.current = null;
+      }
     },
-    [thread]
+    [messages]
   );
 
+  const handleStreamEvent = (data: {
+    event_type?: string;
+    data?: {
+      query_list?: string[];
+      sources_gathered?: Array<{ label?: string }>;
+      is_sufficient?: boolean;
+      follow_up_queries?: string[];
+    };
+  }) => {
+    let processedEvent: ProcessedEvent | null = null;
+
+    if (data.event_type === "generate_query" && data.data?.query_list) {
+      processedEvent = {
+        title: "Generating Search Queries",
+        data: data.data.query_list.join(", "),
+      };
+    } else if (data.event_type === "web_research" && data.data?.sources_gathered) {
+      const sources = data.data.sources_gathered || [];
+      const numSources = sources.length;
+      const uniqueLabels = [
+        ...new Set(sources.map((s) => s.label).filter(Boolean)),
+      ];
+      const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+      processedEvent = {
+        title: "Web Research",
+        data: `Gathered ${numSources} sources. Related to: ${
+          exampleLabels || "N/A"
+        }.`,
+      };
+    } else if (data.event_type === "reflection") {
+      processedEvent = {
+        title: "Reflection",
+        data: data.data?.is_sufficient
+          ? "Search successful, generating final answer."
+          : `Need more information, searching for ${(data.data?.follow_up_queries || []).join(", ")}`,
+      };
+    } else if (data.event_type === "finalize_answer") {
+      processedEvent = {
+        title: "Finalizing Answer",
+        data: "Composing and presenting the final answer.",
+      };
+      hasFinalizeEventOccurredRef.current = true;
+    }
+
+    if (processedEvent) {
+      setProcessedEventsTimeline((prevEvents) => [
+        ...prevEvents,
+        processedEvent!,
+      ]);
+    }
+  };
+
   const handleCancel = useCallback(() => {
-    thread.stop();
-    window.location.reload();
-  }, [thread]);
+    console.log("Cancelling request");
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsLoading(false);
+    setProcessedEventsTimeline([]);
+  }, []);
+
+  const handleNewSearch = useCallback(() => {
+    if (isLoading) {
+      handleCancel();
+    }
+    setMessages([]);
+    setProcessedEventsTimeline([]);
+    setHistoricalActivities({});
+    hasFinalizeEventOccurredRef.current = false;
+  }, [isLoading, handleCancel]);
 
   return (
     <div className="flex h-screen bg-neutral-800 text-neutral-100 font-sans antialiased">
       <main className="flex-1 flex flex-col overflow-hidden max-w-4xl mx-auto w-full">
         <div
           className={`flex-1 overflow-y-auto ${
-            thread.messages.length === 0 ? "flex" : ""
+            messages.length === 0 ? "flex" : ""
           }`}
         >
-          {thread.messages.length === 0 ? (
+          {messages.length === 0 ? (
             <WelcomeScreen
               handleSubmit={handleSubmit}
-              isLoading={thread.isLoading}
+              isLoading={isLoading}
               onCancel={handleCancel}
             />
           ) : (
             <ChatMessagesView
-              messages={thread.messages}
-              isLoading={thread.isLoading}
+              messages={messages}
+              isLoading={isLoading}
               scrollAreaRef={scrollAreaRef}
               onSubmit={handleSubmit}
               onCancel={handleCancel}
+              onNewSearch={handleNewSearch}
               liveActivityEvents={processedEventsTimeline}
               historicalActivities={historicalActivities}
             />
