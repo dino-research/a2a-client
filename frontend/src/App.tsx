@@ -140,8 +140,16 @@ export default function App() {
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
+              const dataContent = line.slice(6);
+              
+              // Skip parsing [DONE] marker
+              if (dataContent === '[DONE]') {
+                console.log("Received [DONE] marker, stream complete");
+                continue;
+              }
+              
               try {
-                const data = JSON.parse(line.slice(6));
+                const data = JSON.parse(dataContent);
                 console.log("Received event:", data);
 
                 if (data.event_type) {
@@ -158,7 +166,7 @@ export default function App() {
                   };
                 }
               } catch (e) {
-                console.error("Error parsing SSE data:", e);
+                console.error("Error parsing SSE data:", e, "Content:", dataContent);
               }
             }
           }
