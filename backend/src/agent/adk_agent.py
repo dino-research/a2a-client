@@ -27,6 +27,7 @@ def get_current_date() -> str:
 def web_research(query: str) -> Dict:
     """
     Performs comprehensive web research on a given query using Google Search.
+    This function will be used as a tool by the ADK agent.
     
     Args:
         query: The search query to research
@@ -83,6 +84,7 @@ def web_research(query: str) -> Dict:
 def analyze_research_quality(research_results: List[Dict]) -> Dict:
     """
     Analyzes the quality and completeness of research results.
+    This function will be used as a tool by the ADK agent.
     
     Args:
         research_results: List of research result dictionaries
@@ -134,81 +136,65 @@ def analyze_research_quality(research_results: List[Dict]) -> Dict:
         "avg_content_length": int(avg_content_length)
     }
 
-def generate_final_answer(question: str, research_results: List[Dict]) -> Dict:
+def conduct_comprehensive_research(query: str) -> str:
     """
-    Generates a comprehensive final answer based on research results.
+    Main research function that the agent will use to conduct research and provide answers.
+    This combines web research, analysis, and final answer generation.
     
     Args:
-        question: The original user question
-        research_results: List of research result dictionaries
+        query: The user's research query
         
     Returns:
-        Dictionary containing the final answer and metadata
+        String containing the comprehensive research answer
     """
     try:
-        # Compile all research content
-        research_content = []
-        all_sources = []
+        # Step 1: Perform web research
+        research_result = web_research(query)
         
-        for result in research_results:
-            if result.get("status") == "success":
-                research_content.append(result.get("content", ""))
-                all_sources.extend(result.get("sources", []))
+        if research_result.get("status") != "success":
+            return f"Xin lỗi, tôi gặp khó khăn khi tìm kiếm thông tin: {research_result.get('error', 'Lỗi không xác định')}"
+        
+        # Step 2: Analyze research quality
+        quality_analysis = analyze_research_quality([research_result])
+        
+        # Step 3: Generate final answer using the research content
+        research_content = research_result.get("content", "")
+        sources = research_result.get("sources", [])
         
         if not research_content:
-            return {
-                "status": "error",
-                "answer": "Xin lỗi, tôi không thể tìm được thông tin để trả lời câu hỏi của bạn.",
-                "sources": [],
-                "confidence": 0.0
-            }
+            return "Xin lỗi, tôi không thể tìm được thông tin phù hợp để trả lời câu hỏi của bạn."
         
         # Use Gemini to synthesize the final answer
         client = Client(api_key=os.getenv("GEMINI_API_KEY"))
-        
         current_date = get_current_date()
-        synthesis_prompt = get_synthesis_prompt(
-            question, 
-            chr(10).join(research_content), 
-            current_date
-        )
-
+        
+        synthesis_prompt = get_synthesis_prompt(query, research_content, current_date)
+        
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=synthesis_prompt,
-            config={
-                "temperature": 0.2,
-            },
+            config={"temperature": 0.2}
         )
         
-        # Remove duplicate sources
-        unique_sources = []
-        seen_urls = set()
-        for source in all_sources:
-            if source.get("url") not in seen_urls:
-                unique_sources.append(source)
-                seen_urls.add(source.get("url"))
+        # Format the final answer with confidence information
+        final_answer = response.text
         
-        return {
-            "status": "success",
-            "answer": response.text,
-            "sources": unique_sources[:10],  # Limit to top 10 sources
-            "confidence": min(1.0, len(unique_sources) * 0.15 + 0.4)
-        }
+        # Add source information if available
+        if sources:
+            final_answer += "\n\n**Nguồn thông tin:**\n"
+            for i, source in enumerate(sources[:5], 1):  # Limit to 5 sources
+                final_answer += f"{i}. [{source.get('title', 'Không có tiêu đề')}]({source.get('url', '#')})\n"
+        
+        return final_answer
         
     except Exception as e:
-        return {
-            "status": "error",
-            "answer": f"Xin lỗi, đã có lỗi xảy ra khi tổng hợp thông tin: {str(e)}",
-            "sources": [],
-            "confidence": 0.0
-        }
+        return f"Xin lỗi, đã có lỗi xảy ra khi nghiên cứu thông tin: {str(e)}"
 
 # Create the main research agent following ADK v1.0.0 best practices
 research_agent = LlmAgent(
     name="research_assistant",
     model="gemini-2.0-flash", 
-    tools=[web_research, analyze_research_quality, generate_final_answer],
+    tools=[conduct_comprehensive_research],
     instruction=get_research_agent_instruction(),
     description="AI research assistant that conducts web research and provides comprehensive answers in Vietnamese"
 ) 

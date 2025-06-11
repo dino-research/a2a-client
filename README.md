@@ -97,7 +97,16 @@ cd frontend
 npm install
 ```
 
-### 4. Run Development Servers
+### 4. Test the ADK Agent
+
+Before running the servers, test that the ADK agent is working:
+
+```bash
+make test-agent
+# Or manually: cd backend && source .venv/bin/activate && python test_adk_agent.py
+```
+
+### 5. Run Development Servers
 
 **Option A: Run both servers with one command**
 ```bash
@@ -118,7 +127,7 @@ make dev-frontend
 # Or manually: cd frontend && npm run dev
 ```
 
-### 5. Access the Application
+### 6. Access the Application
 
 Open your browser and navigate to:
 - **Frontend**: http://localhost:5173/app/
@@ -127,28 +136,38 @@ Open your browser and navigate to:
 
 ## How It Works
 
-### 1. Research Pipeline
+### 1. ADK Agent Architecture
 
-The AI agent follows this research process:
+The application now uses Google Agent Development Kit (ADK) with a properly structured agent:
 
-1. **Query Analysis**: Receives user question in Vietnamese
-2. **Search Generation**: Creates relevant search queries
-3. **Web Research**: Searches Google for current information
-4. **Source Collection**: Gathers and analyzes web sources
-5. **Reflection**: Evaluates information sufficiency
-6. **Answer Generation**: Creates comprehensive response with citations
+1. **LlmAgent**: Core intelligence powered by Gemini 2.0 Flash
+2. **Tools Integration**: `conduct_comprehensive_research` tool handles the entire research pipeline
+3. **Automatic Research**: Agent autonomously decides when and how to use research tools
+4. **Intelligent Orchestration**: ADK manages tool calls, context, and response generation
 
-### 2. Streaming Architecture
+### 2. Research Pipeline
+
+The research tool (`conduct_comprehensive_research`) follows this process:
+
+1. **Query Analysis**: Analyzes user question and determines research strategy
+2. **Web Research**: Uses Google Search with grounding for current information
+3. **Quality Analysis**: Evaluates research quality and completeness
+4. **Answer Synthesis**: Creates comprehensive response with Gemini
+5. **Source Attribution**: Includes relevant sources and citations
+
+### 3. Streaming Architecture
 
 ```mermaid
 graph LR
     A[User Query] --> B[Frontend]
     B --> C[FastAPI Server]
-    C --> D[Gemini API]
-    D --> E[Google Search]
-    E --> F[Response Generation]
-    F --> G[SSE Stream]
-    G --> B
+    C --> D[ADK Runner]
+    D --> E[Research Agent]
+    E --> F[Research Tool]
+    F --> G[Google Search]
+    G --> H[Response Synthesis]
+    H --> I[SSE Stream]
+    I --> B
 ```
 
 The application uses Server-Sent Events (SSE) for real-time streaming:
