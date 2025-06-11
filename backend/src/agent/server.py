@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
+import asyncio
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -107,11 +108,13 @@ def format_stream_event(event_type: str, data: Dict, message_id: str = None) -> 
     }
     return f"data: {json.dumps(event)}\n\n"
 
-async def research_and_answer_with_agent(query: str, user_id: str = "default_user") -> AsyncGenerator[str, None]:
+async def research_and_answer_with_agent(query: str, user_id: str = "default_user", conversation_context: str = "") -> AsyncGenerator[str, None]:
     """Research query using ADK agent and provide streaming response."""
     try:
-        # Create a session for this request
-        session_id = f"session_{datetime.now().timestamp()}"
+        # Use a persistent session for each user to maintain context
+        session_id = f"session_{user_id}"
+        
+        # Always ensure session exists - create if needed, reuse if exists
         try:
             # Try async version first (newer ADK versions)
             await session_service.create_session(
@@ -126,18 +129,32 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
                 user_id=user_id,
                 session_id=session_id
             )
+        except Exception:
+            # Session may already exist, which is fine - we'll reuse it
+            pass
         
         # Yield initial query generation event
         yield format_stream_event("generate_query", {
             "query_list": [query]
         })
         
-        # Create user content for ADK
-        user_content = Content(role='user', parts=[Part(text=query)])
+        # Create user content for ADK - include conversation context if available
+        user_message = query
+        if conversation_context:
+            user_message = f"Bối cảnh cuộc hội thoại trước:\n{conversation_context}\n\nCâu hỏi hiện tại: {query}"
+        
+        user_content = Content(role='user', parts=[Part(text=user_message)])
         
         # Variables to track the agent's response
         final_response_content = ""
         sources = []
+        research_step = "initial"
+        
+        # Initial event to show timeline starts
+        yield format_stream_event("generate_query", {
+            "query": query,
+            "status": "initializing"
+        })
         
         # Run the agent and process events
         async for event in runner.run_async(
@@ -145,68 +162,154 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
             session_id=session_id,
             new_message=user_content
         ):
-            # Handle different event types
-            if hasattr(event, 'tool_name') and event.tool_name == "conduct_comprehensive_research":
-                if event.type == "tool_request":
-                    # Agent is calling the research tool
-                    yield format_stream_event("web_research", {
-                        "query": query,
-                        "status": "searching"
-                    })
-                
-                elif event.type == "tool_response":
-                    # Research tool has completed - parse sources from result
-                    try:
-                        # The tool returns a formatted text response with sources
-                        tool_result = event.content if hasattr(event, 'content') else ""
-                        
-                        # Extract sources if available (they are in the formatted response)
-                        if "**Nguồn thông tin:**" in tool_result:
-                            # Simple parsing - could be improved
-                            sources = []
-                        else:
-                            sources = []
-                        
-                        yield format_stream_event("web_research", {
-                            "sources_gathered": sources,
-                            "query": query,
-                            "status": "success"
-                        })
-                    except Exception as e:
-                        print(f"Error parsing tool response: {e}")
+            # Process ADK events to extract tool information
             
-            elif event.is_final_response():
-                # Agent has generated the final response
-                if event.content and event.content.parts:
-                    final_response_content = event.content.parts[0].text
+            # Check if event has function call or function response
+            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                for part in event.content.parts:
+                    # Handle function calls (tool requests)
+                    if hasattr(part, 'function_call') and part.function_call:
+                        tool_name = part.function_call.name
+
+                        
+                        if tool_name == "generate_initial_queries":
+
+                            yield format_stream_event("generate_query", {
+                                "query": query,
+                                "status": "generating"
+                            })
+                            
+                        elif tool_name == "web_research":
+                            yield format_stream_event("web_research", {
+                                "query": query,
+                                "status": "searching"
+                            })
+                            
+                        elif tool_name == "analyze_research_quality":
+                            yield format_stream_event("reflection", {
+                                "status": "analyzing"
+                            })
+                            
+                        elif tool_name == "iterative_refinement":
+                            yield format_stream_event("web_research", {
+                                "query": "follow-up research",
+                                "status": "refining"
+                            })
+                            
+                        elif tool_name == "finalize_answer":
+                            yield format_stream_event("finalize_answer", {
+                                "status": "synthesizing"
+                            })
                     
-                    # Yield reflection event
-                    yield format_stream_event("reflection", {
-                        "is_sufficient": True,
-                        "confidence": 0.8,
-                        "follow_up_queries": []
-                    })
+                    # Handle function responses (tool responses)
+                    elif hasattr(part, 'function_response') and part.function_response:
+                        tool_name = part.function_response.name
+                        tool_result = part.function_response.response
+
+                        
+                        if tool_name == "generate_initial_queries":
+
+                            if tool_result and 'result' in tool_result:
+                                queries = tool_result['result']
+                                if isinstance(queries, list):
+                                    yield format_stream_event("generate_query", {
+                                        "query_list": queries
+                                    })
+                                else:
+                                    yield format_stream_event("generate_query", {
+                                        "query_list": [str(queries)]
+                                    })
+                            else:
+                                yield format_stream_event("generate_query", {
+                                    "query_list": [query]
+                                })
+                                
+                        elif tool_name == "web_research":
+                            if tool_result and isinstance(tool_result, dict):
+                                if tool_result.get("sources"):
+                                    sources.extend(tool_result["sources"])
+                                    yield format_stream_event("web_research", {
+                                        "sources_gathered": tool_result["sources"],
+                                        "query": tool_result.get("query", query),
+                                        "status": "success"
+                                    })
+                                else:
+                                    yield format_stream_event("web_research", {
+                                        "sources_gathered": [],
+                                        "query": query,
+                                        "status": "completed"
+                                    })
+                            else:
+                                yield format_stream_event("web_research", {
+                                    "sources_gathered": [],
+                                    "query": query,
+                                    "status": "completed"
+                                })
+                                
+                        elif tool_name == "analyze_research_quality":
+                            confidence = 0.7  # Default confidence
+                            is_sufficient = True
+                            follow_up_queries = []
+                            
+                            if tool_result and isinstance(tool_result, dict):
+                                confidence = tool_result.get("confidence", 0.7)
+                                status = tool_result.get("status", "sufficient")
+                                recommendation = tool_result.get("recommendation", "finalize_answer")
+                                is_sufficient = recommendation == "finalize_answer"
+                            
+                            yield format_stream_event("reflection", {
+                                "is_sufficient": is_sufficient,
+                                "confidence": confidence,
+                                "follow_up_queries": follow_up_queries
+                            })
+                            
+                        elif tool_name == "iterative_refinement":
+                            if tool_result and 'result' in tool_result:
+                                follow_up_queries = tool_result['result']
+                                if isinstance(follow_up_queries, list) and follow_up_queries:
+                                    yield format_stream_event("reflection", {
+                                        "is_sufficient": False,
+                                        "confidence": 0.5,
+                                        "follow_up_queries": follow_up_queries
+                                    })
+                                    
+                        elif tool_name == "finalize_answer":
+                            if tool_result:
+                                final_response_content = str(tool_result)
+                                yield format_stream_event("finalize_answer", {
+                                    "answer": final_response_content,
+                                    "sources": sources,
+                                    "confidence": 0.8,
+                                    "status": "completed"
+                                })
                     
-                    # Yield finalize event
-                    yield format_stream_event("finalize_answer", {
-                        "answer": final_response_content,
-                        "sources": sources,
-                        "confidence": 0.8
-                    })
-                    
-                    # Send final message
-                    message_id = f"msg_{datetime.now().timestamp()}"
-                    final_message = {
-                        "type": "ai",
-                        "content": final_response_content,
-                        "id": message_id,
-                        "sources": sources
-                    }
-                    yield format_stream_event("message", final_message, message_id)
-                    break
+                    # Handle final text response
+                    elif hasattr(part, 'text') and part.text and not final_response_content:
+                        final_response_content = part.text
+                        
+                        # Send final message
+                        message_id = f"msg_{datetime.now().timestamp()}"
+                        final_message = {
+                            "type": "ai",
+                            "content": final_response_content,
+                            "id": message_id,
+                            "sources": sources
+                        }
+                        yield format_stream_event("message", final_message, message_id)
+                        return
         
-        # If no final response was received, provide fallback
-        if not final_response_content:
+        # If we reach here, send final response if we have one
+        if final_response_content:
+            message_id = f"msg_{datetime.now().timestamp()}"
+            final_message = {
+                "type": "ai",
+                "content": final_response_content,
+                "id": message_id,
+                "sources": sources
+            }
+            yield format_stream_event("message", final_message, message_id)
+        else:
+            # Fallback message if no response was captured
             error_message = "Xin lỗi, tôi không thể tìm được thông tin để trả lời câu hỏi của bạn."
             message_id = f"msg_{datetime.now().timestamp()}"
             error_response = {
@@ -232,6 +335,10 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
 @app.post("/assistants/{assistant_id}/runs")
 async def create_run(assistant_id: str, run_request: RunRequest):
     """Create a new run (compatible with LangGraph SDK)."""
+    # Get all messages to maintain conversation context
+    if not run_request.messages:
+        raise HTTPException(status_code=400, detail="Xin lỗi, tôi không nhận được câu hỏi nào từ bạn. Vui lòng đặt câu hỏi để tôi có thể giúp đỡ.")
+    
     # Get the latest user message
     user_messages = [msg for msg in run_request.messages if msg.type in ["human", "user"]]
     if not user_messages:
@@ -240,12 +347,22 @@ async def create_run(assistant_id: str, run_request: RunRequest):
     latest_message = user_messages[-1]
     query = latest_message.content
     
-    # Use assistant_id as user_id for session management
-    user_id = assistant_id or "default_user"
+    # Use assistant_id as user_id for session management, but ensure it's valid
+    user_id = assistant_id if assistant_id and assistant_id != "agent" else f"user_{assistant_id}"
+    
+    # Build conversation context from previous messages (limit to last 10 messages for performance)
+    conversation_context = ""
+    if len(run_request.messages) > 1:
+        recent_messages = run_request.messages[-11:-1]  # Get last 10 messages excluding current
+        context_parts = []
+        for msg in recent_messages:
+            role = "Người dùng" if msg.type in ["human", "user"] else "Trợ lý"
+            context_parts.append(f"{role}: {msg.content}")
+        conversation_context = "\n".join(context_parts)
     
     async def generate():
         yield "event: message\n"
-        async for chunk in research_and_answer_with_agent(query, user_id):
+        async for chunk in research_and_answer_with_agent(query, user_id, conversation_context):
             yield chunk
         yield "event: end\n"
         yield "data: [DONE]\n\n"

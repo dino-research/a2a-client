@@ -15,6 +15,9 @@ import {
   Pen,
   ChevronDown,
   ChevronUp,
+  BarChart3,
+  RefreshCw,
+  CheckCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -34,27 +37,51 @@ export function ActivityTimeline({
 }: ActivityTimelineProps) {
   const [isTimelineCollapsed, setIsTimelineCollapsed] =
     useState<boolean>(false);
+    
+  /**
+   * Maps event titles to appropriate icons based on the agent functions:
+   * 
+   * Agent Functions & Their Timeline Events:
+   * 1. generate_initial_queries - Creates search queries from user input
+   * 2. web_research - Performs web search using Tavily API
+   * 3. analyze_research_quality - Analyzes research completeness & quality
+   * 4. iterative_refinement - Generates follow-up queries if needed
+   * 5. finalize_answer - Synthesizes final answer with sources
+   */
   const getEventIcon = (title: string, index: number) => {
     if (index === 0 && isLoading && processedEvents.length === 0) {
       return <Loader2 className="h-4 w-4 text-neutral-400 animate-spin" />;
     }
-    if (title.toLowerCase().includes("generating")) {
-      return <TextSearch className="h-4 w-4 text-neutral-400" />;
-    } else if (title.toLowerCase().includes("thinking")) {
+    
+    // Map to specific agent functions with colored icons
+    if (title.toLowerCase().includes("generating search queries") || 
+        title.toLowerCase().includes("generate_query")) {
+      return <TextSearch className="h-4 w-4 text-blue-400" />;
+    } else if (title.toLowerCase().includes("web research") || 
+               title.toLowerCase().includes("web_research")) {
+      return <Search className="h-4 w-4 text-green-400" />;
+    } else if (title.toLowerCase().includes("reflection") || 
+               title.toLowerCase().includes("analyze_research_quality")) {
+      return <BarChart3 className="h-4 w-4 text-yellow-400" />;
+    } else if (title.toLowerCase().includes("iterative_refinement") || 
+               title.toLowerCase().includes("refining") ||
+               title.toLowerCase().includes("follow-up")) {
+      return <RefreshCw className="h-4 w-4 text-purple-400" />;
+    } else if (title.toLowerCase().includes("finalizing") || 
+               title.toLowerCase().includes("finalize_answer")) {
+      return <CheckCircle className="h-4 w-4 text-emerald-400" />;
+    } else if (title.toLowerCase().includes("thinking") || 
+               title.toLowerCase().includes("processing")) {
       return <Loader2 className="h-4 w-4 text-neutral-400 animate-spin" />;
-    } else if (title.toLowerCase().includes("reflection")) {
-      return <Brain className="h-4 w-4 text-neutral-400" />;
-    } else if (title.toLowerCase().includes("research")) {
-      return <Search className="h-4 w-4 text-neutral-400" />;
-    } else if (title.toLowerCase().includes("finalizing")) {
-      return <Pen className="h-4 w-4 text-neutral-400" />;
     }
+    
     return <Activity className="h-4 w-4 text-neutral-400" />;
   };
 
   useEffect(() => {
-    if (!isLoading && processedEvents.length !== 0) {
-      setIsTimelineCollapsed(true);
+    // Keep timeline expanded during loading or when there are events to show
+    if (isLoading || processedEvents.length > 0) {
+      setIsTimelineCollapsed(false);
     }
   }, [isLoading, processedEvents]);
 
@@ -86,7 +113,7 @@ export function ActivityTimeline({
                 </div>
                 <div>
                   <p className="text-sm text-neutral-300 font-medium">
-                    Searching...
+                    Initializing research agent...
                   </p>
                 </div>
               </div>
@@ -123,18 +150,18 @@ export function ActivityTimeline({
                     </div>
                     <div>
                       <p className="text-sm text-neutral-300 font-medium">
-                        Searching...
+                        Processing...
                       </p>
                     </div>
                   </div>
                 )}
               </div>
-            ) : !isLoading ? ( // Only show "No activity" if not loading and no events
+            ) : !isLoading ? (
               <div className="flex flex-col items-center justify-center h-full text-neutral-500 pt-10">
                 <Info className="h-6 w-6 mb-3" />
                 <p className="text-sm">No activity to display.</p>
                 <p className="text-xs text-neutral-600 mt-1">
-                  Timeline will update during processing.
+                  Timeline will update during agent processing.
                 </p>
               </div>
             ) : null}

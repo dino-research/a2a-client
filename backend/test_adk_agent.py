@@ -19,22 +19,36 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 
-# Import the research agent
-from adk_agent import research_agent, conduct_comprehensive_research
+# Import the research agent and tools
+from adk_agent import research_agent, web_research, generate_initial_queries, analyze_research_quality
 
 async def test_research_agent():
     """Test the research agent with a simple query."""
     print("🚀 Starting ADK Research Agent Tests\n")
     
-    # Test direct tool first
+    # Test direct tools first
     print("🔧 Testing tools directly...")
     try:
-        print("🔍 Testing direct tool call: Thời tiết Paris hôm nay")
-        result = conduct_comprehensive_research("Thời tiết Paris hôm nay")
-        print(f"💬 Tool result: {result[:200]}...")
-        print("✅ Direct tool test completed successfully!")
+        print("🔍 Testing generate_initial_queries tool")
+        queries = generate_initial_queries("Thời tiết Paris hôm nay")
+        print(f"💬 Generated queries: {queries}")
+        
+        print("🔍 Testing web_research tool")
+        result = web_research("Thời tiết Paris hôm nay")
+        print(f"💬 Research result status: {result.get('status')}")
+        if result.get('sources'):
+            print(f"💬 Found {len(result['sources'])} sources")
+        
+        print("🔍 Testing analyze_research_quality tool")
+        import json
+        quality = analyze_research_quality(json.dumps([result]))
+        print(f"💬 Quality analysis: {quality}")
+        
+        print("✅ Direct tool tests completed successfully!")
     except Exception as e:
-        print(f"❌ Error testing direct tool: {e}")
+        print(f"❌ Error testing direct tools: {e}")
+        import traceback
+        traceback.print_exc()
         return
 
     print("\n🧪 Testing ADK Research Agent...")
@@ -97,6 +111,12 @@ async def test_research_agent():
             # Handle different event types based on ADK documentation
             print(f"📨 Event from: {event.author}")
             
+            # Check for tool calls
+            if hasattr(event, 'tool_name'):
+                print(f"🔧 Tool called: {event.tool_name}")
+                if event.type == "tool_response":
+                    print(f"🔧 Tool response received")
+            
             # Check for content
             if hasattr(event, 'content') and event.content:
                 if hasattr(event.content, 'parts') and event.content.parts:
@@ -140,7 +160,11 @@ async def main():
     
     # Test direct tools
     try:
-        result = conduct_comprehensive_research("Test query")
+        queries = generate_initial_queries("Test query")
+        result = web_research("Test query")
+        import json
+        quality = analyze_research_quality(json.dumps([result]))
+        
         print("Direct Tools: ✅ PASSED")
         tool_test_passed = True
     except Exception as e:

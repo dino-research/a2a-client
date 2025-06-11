@@ -202,9 +202,13 @@ export default function App() {
     event_type?: string;
     data?: {
       query_list?: string[];
-      sources_gathered?: Array<{ label?: string }>;
+      query?: string;
+      status?: string;
+      sources_gathered?: Array<{ label?: string; title?: string }>;
       is_sufficient?: boolean;
       follow_up_queries?: string[];
+      confidence?: number;
+      answer?: string;
     };
   }) => {
     let processedEvent: ProcessedEvent | null = null;
@@ -214,40 +218,72 @@ export default function App() {
         title: "Generating Search Queries",
         data: data.data.query_list.join(", "),
       };
-    } else if (data.event_type === "web_research" && data.data?.sources_gathered) {
-      const sources = data.data.sources_gathered || [];
-      const numSources = sources.length;
-      const uniqueLabels = [
-        ...new Set(sources.map((s) => s.label).filter(Boolean)),
-      ];
-      const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+    } else if (data.event_type === "generate_query" && data.data?.query) {
       processedEvent = {
-        title: "Web Research",
-        data: `Gathered ${numSources} sources. Related to: ${
-          exampleLabels || "N/A"
-        }.`,
+        title: "Generating Search Queries",
+        data: `Creating search queries for: ${data.data.query}`,
       };
+    } else if (data.event_type === "web_research") {
+      if (data.data?.status === "searching") {
+        processedEvent = {
+          title: "Web Research",
+          data: `Searching for: ${data.data.query || "information"}`,
+        };
+      } else if (data.data?.sources_gathered) {
+        const sources = data.data.sources_gathered || [];
+        const numSources = sources.length;
+        const uniqueLabels = [
+          ...new Set(sources.map((s) => s.label || s.title).filter(Boolean)),
+        ];
+        const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+        processedEvent = {
+          title: "Web Research",
+          data: `Gathered ${numSources} sources. Related to: ${
+            exampleLabels || "N/A"
+          }.`,
+        };
+      } else if (data.data?.status === "refining") {
+        processedEvent = {
+          title: "Web Research",
+          data: "Conducting follow-up research for more details",
+        };
+      }
     } else if (data.event_type === "reflection") {
-      processedEvent = {
-        title: "Reflection",
-        data: data.data?.is_sufficient
-          ? "Search successful, generating final answer."
-          : `Need more information, searching for ${(data.data?.follow_up_queries || []).join(", ")}`,
-      };
+      if (data.data?.status === "analyzing") {
+        processedEvent = {
+          title: "Reflection",
+          data: "Analyzing research quality and completeness",
+        };
+      } else {
+        const confidence = data.data?.confidence ? Math.round(data.data.confidence * 100) : 0;
+        processedEvent = {
+          title: "Reflection",
+          data: data.data?.is_sufficient
+            ? `Research quality: ${confidence}% - Sufficient for final answer`
+            : `Research quality: ${confidence}% - Need more information: ${(data.data?.follow_up_queries || []).join(", ")}`,
+        };
+      }
     } else if (data.event_type === "finalize_answer") {
-      processedEvent = {
-        title: "Finalizing Answer",
-        data: "Composing and presenting the final answer.",
-      };
-      hasFinalizeEventOccurredRef.current = true;
-    }
+      if (data.data?.status === "synthesizing") {
+        processedEvent = {
+          title: "Finalizing Answer",
+          data: "Synthesizing research results into comprehensive answer",
+        };
+      } else {
+        processedEvent = {
+          title: "Finalizing Answer",
+          data: "Presenting final answer with sources",
+        };
+        hasFinalizeEventOccurredRef.current = true;
+      }
+          }
 
-    if (processedEvent) {
-      setProcessedEventsTimeline((prevEvents) => [
-        ...prevEvents,
-        processedEvent!,
-      ]);
-    }
+      if (processedEvent) {
+        setProcessedEventsTimeline((prevEvents) => [
+          ...prevEvents,
+          processedEvent!,
+        ]);
+      }
   };
 
   const handleCancel = useCallback(() => {
