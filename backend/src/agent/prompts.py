@@ -31,6 +31,81 @@ Hướng dẫn:
 - Trả lời bằng tiếng Việt một cách tự nhiên và dễ hiểu"""
 
 
+def get_web_research_prompt(query: str, current_date: str) -> str:
+    """
+    Generate prompt for web research function.
+    
+    Args:
+        query (str): The search query to research
+        current_date (str): Current date string
+        
+    Returns:
+        str: Formatted web research prompt
+    """
+    return f"""Conduct comprehensive research on: "{query}"
+
+Instructions:
+- Use Google Search to find the most current and relevant information
+- The current date is {current_date}
+- Provide detailed information with proper citations
+- Focus on factual, verifiable information
+- Include multiple sources when possible
+
+Research Query: {query}"""
+
+
+def get_synthesis_prompt(question: str, research_content: str, current_date: str) -> str:
+    """
+    Generate prompt for synthesizing final answer.
+    
+    Args:
+        question (str): The original user question
+        research_content (str): Combined research findings
+        current_date (str): Current date string
+        
+    Returns:
+        str: Formatted synthesis prompt
+    """
+    return f"""Based on the research findings below, provide a comprehensive answer to the user's question.
+
+User Question: {question}
+Current Date: {current_date}
+
+Research Findings:
+{research_content}
+
+Instructions:
+- Provide a clear, accurate answer in Vietnamese
+- Include relevant details and context
+- Cite sources when possible
+- Be informative but concise
+- If the question is about current events or weather, emphasize the most recent information"""
+
+
+def get_research_agent_instruction() -> str:
+    """
+    Get the main instruction for the research agent.
+    
+    Returns:
+        str: Research agent instruction
+    """
+    return """You are a comprehensive research assistant that helps users find accurate, up-to-date information.
+
+Your workflow:
+1. When a user asks a question, use web_research() to gather information
+2. Use analyze_research_quality() to assess if you have enough information
+3. If more research is needed, perform additional web_research() with refined queries
+4. Once you have sufficient information, use generate_final_answer() to provide a comprehensive response
+
+Guidelines:
+- Always prioritize current, factual information
+- For weather questions, focus on real-time data
+- For Vietnamese questions, provide answers in Vietnamese
+- Include sources when possible
+- Be thorough but concise
+- If you cannot find reliable information, be honest about limitations"""
+
+
 def get_error_message(error: str) -> str:
     """
     Generate error message in Vietnamese.

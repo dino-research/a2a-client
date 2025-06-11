@@ -1,5 +1,6 @@
 """
 ADK-based research agent that performs web research and provides comprehensive answers.
+Updated to follow ADK v1.0.0 best practices.
 """
 import os
 import json
@@ -11,6 +12,13 @@ from google.genai import Client
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
+
+# Import prompts
+from prompts import (
+    get_web_research_prompt,
+    get_synthesis_prompt,
+    get_research_agent_instruction
+)
 
 def get_current_date() -> str:
     """Get current date in a readable format."""
@@ -31,16 +39,7 @@ def web_research(query: str) -> Dict:
         client = Client(api_key=os.getenv("GEMINI_API_KEY"))
         
         current_date = get_current_date()
-        prompt = f"""Conduct comprehensive research on: "{query}"
-
-Instructions:
-- Use Google Search to find the most current and relevant information
-- The current date is {current_date}
-- Provide detailed information with proper citations
-- Focus on factual, verifiable information
-- Include multiple sources when possible
-
-Research Query: {query}"""
+        prompt = get_web_research_prompt(query, current_date)
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
@@ -168,21 +167,11 @@ def generate_final_answer(question: str, research_results: List[Dict]) -> Dict:
         client = Client(api_key=os.getenv("GEMINI_API_KEY"))
         
         current_date = get_current_date()
-        synthesis_prompt = f"""Based on the research findings below, provide a comprehensive answer to the user's question.
-
-User Question: {question}
-Current Date: {current_date}
-
-Research Findings:
-{chr(10).join(research_content)}
-
-Instructions:
-- Provide a clear, accurate answer in Vietnamese
-- Include relevant details and context
-- Cite sources when possible
-- Be informative but concise
-- If the question is about current events or weather, emphasize the most recent information
-"""
+        synthesis_prompt = get_synthesis_prompt(
+            question, 
+            chr(10).join(research_content), 
+            current_date
+        )
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
@@ -215,25 +204,11 @@ Instructions:
             "confidence": 0.0
         }
 
-# Create the main research agent
+# Create the main research agent following ADK v1.0.0 best practices
 research_agent = LlmAgent(
     name="research_assistant",
     model="gemini-2.0-flash", 
     tools=[web_research, analyze_research_quality, generate_final_answer],
-    instruction="""You are a comprehensive research assistant that helps users find accurate, up-to-date information.
-
-Your workflow:
-1. When a user asks a question, use web_research() to gather information
-2. Use analyze_research_quality() to assess if you have enough information
-3. If more research is needed, perform additional web_research() with refined queries
-4. Once you have sufficient information, use generate_final_answer() to provide a comprehensive response
-
-Guidelines:
-- Always prioritize current, factual information
-- For weather questions, focus on real-time data
-- For Vietnamese questions, provide answers in Vietnamese
-- Include sources when possible
-- Be thorough but concise
-- If you cannot find reliable information, be honest about limitations""",
-    description="AI research assistant that conducts web research and provides comprehensive answers"
+    instruction=get_research_agent_instruction(),
+    description="AI research assistant that conducts web research and provides comprehensive answers in Vietnamese"
 ) 

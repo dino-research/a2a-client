@@ -1,6 +1,6 @@
 """
-FastAPI server using Gemini API directly with grounded search.
-Refactored to use Google Agent Development Kit with separated prompts.
+FastAPI server using Google Agent Development Kit with research_agent.
+Refactored to use ADK agent instead of direct Gemini client.
 """
 import os
 import sys
@@ -11,7 +11,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from google.genai import Client
 import uvicorn
 
 # Add current directory to path for imports
@@ -19,13 +18,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import prompts and configurations
 from prompts import (
-    get_research_prompt,
-    get_error_message, 
-    get_model_config,
     get_health_check_response,
     get_api_description,
     NO_QUERY_MESSAGE
 )
+
+# Import the research functions directly
+from adk_agent import web_research, generate_final_answer
 
 try:
     from app import create_frontend_router
@@ -70,8 +69,7 @@ app.mount(
     name="frontend",
 )
 
-# Initialize Gemini client
-client = Client(api_key=os.getenv("GEMINI_API_KEY"))
+# No need for ADK components - using direct functions
 
 # Pydantic models
 class Message(BaseModel):
@@ -95,41 +93,19 @@ def format_stream_event(event_type: str, data: Dict, message_id: str = None) -> 
     }
     return f"data: {json.dumps(event)}\n\n"
 
-async def research_and_answer(query: str) -> AsyncGenerator[str, None]:
-    """Research query and provide streaming response."""
+async def research_and_answer_with_agent(query: str) -> AsyncGenerator[str, None]:
+    """Research query using direct functions and provide streaming response."""
     try:
         # Yield initial query generation event
         yield format_stream_event("generate_query", {
             "query_list": [query]
         })
         
-        # Get research prompt from prompts module
-        prompt = get_research_prompt(query)
+        # Perform web research
+        research_result = web_research(query)
         
-        # Get model configuration from prompts module
-        config = get_model_config()
-
-        # Call Gemini with grounded search
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config=config,
-        )
-        
-        # Extract sources from grounding metadata
-        sources = []
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-                if hasattr(candidate.grounding_metadata, 'grounding_chunks'):
-                    for chunk in candidate.grounding_metadata.grounding_chunks:
-                        if hasattr(chunk, 'web') and chunk.web:
-                            sources.append({
-                                "title": chunk.web.title,
-                                "url": chunk.web.uri,
-                                "snippet": getattr(chunk.web, 'snippet', ''),
-                                "label": chunk.web.title.split('.')[0] if '.' in chunk.web.title else chunk.web.title
-                            })
+        # Extract sources from research result
+        sources = research_result.get("sources", [])
         
         # Yield web research event
         yield format_stream_event("web_research", {
@@ -141,30 +117,33 @@ async def research_and_answer(query: str) -> AsyncGenerator[str, None]:
         # Yield reflection event
         yield format_stream_event("reflection", {
             "is_sufficient": True,
-            "confidence": 0.8 if sources else 0.6,
+            "confidence": 0.8,
             "follow_up_queries": []
         })
         
+        # Generate final answer
+        final_answer_result = generate_final_answer(query, [research_result])
+        final_response_text = final_answer_result.get("answer", "Xin lỗi, tôi không thể tìm thấy thông tin phù hợp.")
+        
         # Yield finalize event
         yield format_stream_event("finalize_answer", {
-            "answer": response.text,
+            "answer": final_response_text,
             "sources": sources,
-            "confidence": 0.8 if sources else 0.6
+            "confidence": 0.8
         })
         
         # Send final message
         message_id = f"msg_{datetime.now().timestamp()}"
         final_message = {
             "type": "ai",
-            "content": response.text,
+            "content": final_response_text,
             "id": message_id,
             "sources": sources
         }
         yield format_stream_event("message", final_message, message_id)
         
     except Exception as e:
-        # Use error message from prompts module
-        error_message = get_error_message(str(e))
+        error_message = f"Xin lỗi, đã xảy ra lỗi khi tìm kiếm thông tin: {str(e)}"
         
         yield format_stream_event("error", {"message": error_message})
         
@@ -189,7 +168,7 @@ async def create_run(assistant_id: str, run_request: RunRequest):
     
     async def generate():
         yield "event: message\n"
-        async for chunk in research_and_answer(query):
+        async for chunk in research_and_answer_with_agent(query):
             yield chunk
         yield "event: end\n"
         yield "data: [DONE]\n\n"
