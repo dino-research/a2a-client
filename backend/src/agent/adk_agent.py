@@ -1,6 +1,6 @@
 """
 ADK-based research agent that performs web research and provides comprehensive answers.
-Updated to follow ADK v1.0.0 best practices.
+Updated to follow ADK v1.0.0 best practices with Tavily Search integration.
 """
 import os
 import json
@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List
 from google.adk.agents import LlmAgent
 from google.genai import Client
+from tavily import TavilyClient
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -26,7 +27,7 @@ def get_current_date() -> str:
 
 def web_research(query: str) -> Dict:
     """
-    Performs comprehensive web research on a given query using Google Search.
+    Performs comprehensive web research on a given query using Tavily Search.
     This function will be used as a tool by the ADK agent.
     
     Args:
@@ -36,41 +37,63 @@ def web_research(query: str) -> Dict:
         Dictionary containing research results and sources
     """
     try:
-        # Initialize the Google GenAI client for grounded search
-        client = Client(api_key=os.getenv("GEMINI_API_KEY"))
+        # Initialize Tavily client
+        tavily_api_key = os.getenv("TAVILY_API_KEY")
+        if not tavily_api_key:
+            return {
+                "status": "error",
+                "query": query,
+                "error": "TAVILY_API_KEY not found in environment variables",
+                "research_date": get_current_date()
+            }
         
+        tavily_client = TavilyClient(api_key=tavily_api_key)
         current_date = get_current_date()
-        prompt = get_web_research_prompt(query, current_date)
-
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config={
-                "tools": [{"google_search": {}}],
-                "temperature": 0.1,
-            },
+        
+        # Perform search with Tavily
+        search_result = tavily_client.search(
+            query=query,
+            search_depth="advanced",  # Use advanced search for more comprehensive results
+            max_results=5,  # Get top 5 results
+            include_answer=True,  # Include AI-generated answer
+            include_raw_content=False,  # Don't include full page content
+            include_domains=None,  # Search all domains
+            exclude_domains=None  # Don't exclude any domains
         )
         
-        # Extract sources from grounding metadata if available
+        # Extract sources from Tavily results
         sources = []
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-                if hasattr(candidate.grounding_metadata, 'grounding_chunks'):
-                    for chunk in candidate.grounding_metadata.grounding_chunks:
-                        if hasattr(chunk, 'web') and chunk.web:
-                            sources.append({
-                                "title": chunk.web.title,
-                                "url": chunk.web.uri,
-                                "snippet": getattr(chunk.web, 'snippet', '')
-                            })
+        search_content = ""
+        
+        if search_result.get("answer"):
+            search_content = search_result["answer"]
+        
+        # Process search results
+        if search_result.get("results"):
+            for result in search_result["results"]:
+                sources.append({
+                    "title": result.get("title", "Không có tiêu đề"),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:300] + "..." if result.get("content") else ""
+                })
+                
+                # Append content for comprehensive research
+                if result.get("content"):
+                    search_content += f"\n\n{result['content'][:500]}..."
+        
+        # If no answer was provided by Tavily, create summary from results
+        if not search_content and sources:
+            search_content = f"Kết quả tìm kiếm cho '{query}':\n\n"
+            for i, source in enumerate(sources[:3], 1):
+                search_content += f"{i}. {source['title']}: {source['snippet']}\n\n"
         
         return {
             "status": "success",
             "query": query,
-            "content": response.text,
+            "content": search_content,
             "sources": sources,
-            "research_date": current_date
+            "research_date": current_date,
+            "search_engine": "Tavily"
         }
         
     except Exception as e:
@@ -78,7 +101,7 @@ def web_research(query: str) -> Dict:
             "status": "error",
             "query": query,
             "error": str(e),
-            "research_date": current_date
+            "research_date": get_current_date()
         }
 
 def analyze_research_quality(research_results: List[Dict]) -> Dict:

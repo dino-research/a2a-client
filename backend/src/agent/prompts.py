@@ -22,7 +22,7 @@ def get_web_research_prompt(query: str, current_date: str) -> str:
     return f"""Conduct comprehensive research on: "{query}"
 
 Instructions:
-- Use Google Search to find the most current and relevant information
+- Use Tavily Search to find the most current and relevant information
 - The current date is {current_date}
 - Provide detailed information with proper citations
 - Focus on factual, verifiable information

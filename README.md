@@ -7,7 +7,7 @@ A fullstack AI research assistant powered by Google Agent Development Kit (ADK) 
 ## Features
 
 - 🤖 **AI Research Assistant**: Powered by Google Gemini and Agent Development Kit
-- 🔍 **Real-time Web Search**: Integrated Google Search with source attribution  
+- 🔍 **Real-time Web Search**: Integrated Tavily Search with source attribution  
 - 🇻🇳 **Vietnamese Language Support**: Natural responses in Vietnamese
 - 📡 **Streaming Responses**: Real-time response streaming with activity timeline
 - 🌐 **Modern Web Interface**: React frontend with beautiful UI components
@@ -27,7 +27,7 @@ A fullstack AI research assistant powered by Google Agent Development Kit (ADK) 
 - **Google Agent Development Kit (ADK)**
 - **Google Gemini API** (2.0 Flash, 2.5 Flash, 2.5 Pro)
 - **FastAPI** for HTTP server
-- **Google Search** integration for web research
+- **Tavily Search** integration for web research
 - **Server-Sent Events (SSE)** for streaming
 
 ## Project Structure
@@ -97,13 +97,18 @@ cd frontend
 npm install
 ```
 
-### 4. Test the ADK Agent
+### 4. Test the ADK Agent and Tavily Search
 
-Before running the servers, test that the ADK agent is working:
+Before running the servers, test that the ADK agent and Tavily Search are working:
 
 ```bash
+# Test ADK Agent
 make test-agent
 # Or manually: cd backend && source .venv/bin/activate && python test_adk_agent.py
+
+# Test Tavily Search Integration
+make test-tavily
+# Or manually: cd backend && source .venv/bin/activate && python test_tavily_search.py
 ```
 
 ### 5. Run Development Servers
@@ -150,7 +155,7 @@ The application now uses Google Agent Development Kit (ADK) with a properly stru
 The research tool (`conduct_comprehensive_research`) follows this process:
 
 1. **Query Analysis**: Analyzes user question and determines research strategy
-2. **Web Research**: Uses Google Search with grounding for current information
+2. **Web Research**: Uses Tavily Search API for current information
 3. **Quality Analysis**: Evaluates research quality and completeness
 4. **Answer Synthesis**: Creates comprehensive response with Gemini
 5. **Source Attribution**: Includes relevant sources and citations
@@ -164,7 +169,7 @@ graph LR
     C --> D[ADK Runner]
     D --> E[Research Agent]
     E --> F[Research Tool]
-    F --> G[Google Search]
+    F --> G[Tavily Search]
     G --> H[Response Synthesis]
     H --> I[SSE Stream]
     I --> B
@@ -313,5 +318,5 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 - **Google Agent Development Kit** for the AI framework
 - **Google Gemini** for the language models
-- **Google Search** for web research capabilities
+- **Tavily Search** for web research capabilities
 - **React** and **FastAPI** communities for excellent tools 

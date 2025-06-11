@@ -7,6 +7,7 @@ help:
 	@echo "  make dev             - Starts both frontend and backend development servers"
 	@echo "  make install-backend - Install backend dependencies"
 	@echo "  make test-agent      - Test the ADK research agent"
+	@echo "  make test-tavily     - Test Tavily Search integration"
 
 install-backend:
 	@echo "Installing Gemini backend dependencies..."
@@ -23,6 +24,10 @@ dev-backend:
 test-agent:
 	@echo "Testing ADK research agent..."
 	@cd backend && source .venv/bin/activate && python test_adk_agent.py
+
+test-tavily:
+	@echo "Testing Tavily Search integration..."
+	@cd backend && source .venv/bin/activate && python test_tavily_search.py
 
 # Run frontend and backend concurrently
 dev:
