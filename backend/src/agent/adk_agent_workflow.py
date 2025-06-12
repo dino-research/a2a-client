@@ -40,6 +40,60 @@ def get_current_date() -> str:
     return datetime.now().strftime("%B %d, %Y")
 
 # ============================================================================
+# COORDINATOR AGENT FOR DETERMINING RESEARCH APPROACH
+# ============================================================================
+
+def create_coordinator_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
+    """
+    Create an LlmAgent that coordinates and decides whether web research is needed.
+    """
+    instruction = f"""
+Bạn là một agent điều phối thông minh. Nhiệm vụ của bạn là phân tích câu hỏi của người dùng và quyết định cách xử lý phù hợp.
+
+Các loại câu hỏi và cách xử lý:
+
+1. **Câu hỏi cá nhân/giới thiệu** (Không cần search web):
+   - Tự giới thiệu: "Tôi là Thái", "Tên tôi là Nam", "Mình là sinh viên"
+   - Thông tin cá nhân: tuổi, sở thích, công việc của người dùng
+   - Chào hỏi: "Xin chào", "Hello", "Chào bạn"
+   - Cảm xúc cá nhân: "Tôi buồn", "Mình vui"
+
+2. **Câu hỏi kiến thức cơ bản** (Không cần search web):
+   - Toán học cơ bản: 2+2=?, diện tích hình vuông
+   - Định nghĩa đơn giản: "Trái đất là gì?", "Nước là gì?"
+   - Kiến thức phổ thông không đòi hỏi thông tin mới nhất
+
+3. **Câu hỏi cần nghiên cứu web** (Cần search web):
+   - Tin tức mới: "Tình hình kinh tế mới nhất", "Chính sách mới"
+   - Thông tin cập nhật: giá cả, sự kiện hiện tại
+   - Dữ liệu cụ thể: thống kê, báo cáo
+   - Thông tin chuyên môn sâu cần nguồn tham khảo
+
+**Quy tắc quyết định:**
+- Nếu có thể trả lời từ kiến thức cơ bản → response_type: "direct_answer"
+- Nếu cần thông tin mới/cập nhật → response_type: "web_research"
+- Khi nghi ngờ → response_type: "web_research" (để đảm bảo độ chính xác)
+
+**Định dạng output:** JSON với định dạng:
+{{
+    "response_type": "direct_answer" hoặc "web_research",
+    "reasoning": "Lý do tại sao chọn phương pháp này",
+    "confidence": số từ 0.0 đến 1.0,
+    "direct_answer": "Câu trả lời trực tiếp (chỉ có khi response_type là direct_answer)",
+    "original_question": "Câu hỏi gốc của người dùng"
+}}
+
+Ngày hiện tại: {get_current_date()}
+"""
+    
+    return LlmAgent(
+        name="coordinator",
+        model=model,
+        instruction=instruction,
+        description="Agent điều phối quyết định cách thức xử lý câu hỏi"
+    )
+
+# ============================================================================
 # SPECIALIZED LLM AGENTS FOR EACH RESEARCH TASK
 # ============================================================================
 
@@ -330,13 +384,112 @@ def create_iterative_research_agent(model: str = "gemini-2.0-flash") -> LoopAgen
 # MAIN RESEARCH AGENT FACTORY
 # ============================================================================
 
+def create_simple_answer_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
+    """
+    Create an LlmAgent for answering simple questions directly without web research.
+    """
+    instruction = """
+Bạn là một AI assistant thông minh, có thể trả lời các câu hỏi cơ bản mà không cần tìm kiếm thông tin trên web.
+
+Nhiệm vụ của bạn:
+1. Trả lời các câu hỏi cá nhân, chào hỏi, giới thiệu
+2. Giải đáp các câu hỏi kiến thức cơ bản
+3. Thực hiện các phép toán đơn giản
+4. Cung cấp định nghĩa và giải thích khái niệm cơ bản
+
+Nguyên tắc:
+- Trả lời một cách thân thiện và hữu ích
+- Sử dụng ngôn ngữ rõ ràng, dễ hiểu
+- Thừa nhận nếu không chắc chắn về thông tin
+- Không đưa ra thông tin có thể lỗi thời
+
+Định dạng: Trả lời trực tiếp bằng tiếng Việt, không cần format JSON.
+"""
+    
+    return LlmAgent(
+        name="simple_answer_agent",
+        model=model,
+        instruction=instruction,
+        description="Agent trả lời trực tiếp các câu hỏi đơn giản"
+    )
+
+def create_coordinator_workflow_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
+    """
+    Create a smart coordinator agent that handles the entire workflow logic.
+    """
+    instruction = f"""
+Bạn là agent điều phối thông minh, quản lý toàn bộ quy trình xử lý câu hỏi của người dùng.
+
+**BƯỚC 1: PHÂN TÍCH CÂU HỎI**
+
+Đầu tiên, phân tích câu hỏi và quyết định cách xử lý:
+
+1. **Câu hỏi cá nhân/chào hỏi/giới thiệu** (Trả lời trực tiếp):
+   - Tự giới thiệu: "Tôi là Thái", "Chào bạn, tôi là Nam", "Mình tên Lan"
+   - Chào hỏi: "Xin chào", "Hello", "Chào bạn", "Hi"
+   - Kết hợp: "Chào bạn, Tôi là Thái" → Trả lời thân thiện
+   - Thông tin cá nhân: tuổi, sở thích, công việc
+   - Cảm xúc cá nhân: "Tôi buồn", "Mình vui"
+
+2. **Câu hỏi kiến thức cơ bản** (Trả lời trực tiếp):
+   - Toán học đơn giản: "2+2=?", "diện tích hình vuông"
+   - Định nghĩa cơ bản: "Trái đất là gì?", "Nước là gì?"
+   - Kiến thức phổ thông không cần cập nhật
+
+3. **Câu hỏi cần nghiên cứu web**:
+   - Tin tức mới: "Tình hình kinh tế mới nhất"
+   - Thông tin thời gian thực: "Giá bitcoin hôm nay"
+   - Dữ liệu cụ thể cần nguồn tham khảo
+
+**BƯỚC 2: XỬ LÝ THEO QUYẾT ĐỊNH**
+
+Nếu TRẮLỜI TRỰC TIẾP: Đưa ra câu trả lời ngay lập tức, thân thiện và hữu ích.
+
+Nếu CẦN NGHIÊN CỨU WEB: Thực hiện quy trình nghiên cứu web đầy đủ.
+
+**QUY TẮC QUAN TRỌNG:**
+- Luôn ưu tiên trả lời trực tiếp nếu có thể
+- Chỉ dùng web research khi thực sự cần thông tin mới/cập nhật
+- Trả lời bằng tiếng Việt, thân thiện và tự nhiên
+
+**ĐỊNH DẠNG OUTPUT:**
+
+CHỈ CÓ 2 CÁCH TRẢ LỜI:
+
+1. **Trả lời trực tiếp** (cho câu hỏi cá nhân/chào hỏi/kiến thức cơ bản):
+Trả lời ngay bằng văn bản thường, ví dụ:
+"Chào bạn! Rất vui được gặp bạn Thái. Tôi là AI assistant, sẵn sàng giúp đỡ bạn bất cứ lúc nào. Bạn có câu hỏi gì cần tôi hỗ trợ không?"
+
+2. **Cần nghiên cứu web** (cho thông tin mới/thời gian thực):
+Chỉ trả về JSON format này:
+{{
+    "action": "web_research_needed",
+    "query": "câu hỏi gốc",
+    "reasoning": "lý do cần nghiên cứu web"
+}}
+
+**LƯU Ý QUAN TRỌNG:**
+- Câu hỏi "Chào bạn, Tôi là Thái" → Trả lời trực tiếp
+- Câu hỏi "Giá bitcoin hôm nay" → JSON web research
+- KHÔNG BAO GIỜ trả lời JSON cho câu chào hỏi/giới thiệu!
+
+Ngày hiện tại: {get_current_date()}
+"""
+    
+    return LlmAgent(
+        name="coordinator_workflow",
+        model=model,
+        instruction=instruction,
+        description="Smart coordinator agent that handles the entire workflow"
+    )
+
 def create_research_agent(
     model: str = "gemini-2.0-flash",
     initial_search_query_count: int = 3,
     max_research_loops: int = 3
-) -> SequentialAgent:
+) -> LlmAgent:
     """
-    Create a comprehensive research agent using Workflow Agents pattern.
+    Create a comprehensive research agent using smart coordinator approach.
     
     Args:
         model: The Gemini model to use
@@ -344,28 +497,13 @@ def create_research_agent(
         max_research_loops: Maximum number of research loops to perform
         
     Returns:
-        SequentialAgent: Orchestrated research workflow
+        LlmAgent: Smart coordinator agent that handles everything
     """
     # Set effort settings for this research session
     set_effort_settings(initial_search_query_count, max_research_loops)
     
-    # Create the iterative research component
-    iterative_researcher = create_iterative_research_agent(model)
-    
-    # Create the final answer synthesizer
-    answer_finalizer = create_answer_finalizer_agent(model)
-    
-    # Create the main research workflow
-    main_research_agent = SequentialAgent(
-        name="comprehensive_research_agent",
-        sub_agents=[
-            iterative_researcher,
-            answer_finalizer
-        ],
-        description="Comprehensive research agent with iterative refinement and final synthesis"
-    )
-    
-    return main_research_agent
+    # Return the smart coordinator that handles everything
+    return create_coordinator_workflow_agent(model)
 
 # Create default agent for backward compatibility
 research_agent = create_research_agent("gemini-2.0-flash", 3, 3) 

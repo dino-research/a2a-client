@@ -175,11 +175,13 @@ async def research_and_answer_with_agent(
         research_step = "initial"
         research_loops = 0  # Track research loops to enforce max_research_loops
         event_count = 0
+        coordinator_decision = None  # Track coordinator decision
+        direct_answer_provided = False  # Track if direct answer was provided
         
         # Initial event to show timeline starts
         yield format_stream_event("generate_query", {
             "query": query,
-            "status": "initializing"
+            "status": "analyzing_question"
         })
         
         # Run the agent and process events
@@ -199,13 +201,89 @@ async def research_and_answer_with_agent(
                         
                         # Detect different workflow stages based on content patterns
                         try:
+                            # Check if this is a web research trigger
+                            if text_content.startswith('{') and 'web_research_needed' in text_content:
+                                try:
+                                    parsed_data = json.loads(text_content)
+                                    if parsed_data.get("action") == "web_research_needed":
+                                        # This means we need to trigger web research
+                                        yield format_stream_event("generate_query", {
+                                            "query": query,
+                                            "status": "needs_web_research",
+                                            "reasoning": parsed_data.get("reasoning", "")
+                                        })
+                                        
+                                        # Now trigger the actual web research workflow
+                                        # We'll handle this by creating a new research agent call
+                                        coordinator_decision = {"response_type": "web_research"}
+                                        
+                                        # Call the original research workflow
+                                        from adk_agent_workflow import create_iterative_research_agent, create_answer_finalizer_agent
+                                        web_research_agent = create_iterative_research_agent(model)
+                                        answer_finalizer = create_answer_finalizer_agent(model)
+                                        
+                                        # Create a new runner for web research
+                                        web_runner = Runner(
+                                            agent=web_research_agent,
+                                            app_name=f"{APP_NAME}_web_research",
+                                            session_service=session_service
+                                        )
+                                        
+                                        # Execute web research
+                                        async for web_event in web_runner.run_async(
+                                            user_id=user_id,
+                                            session_id=f"{session_id}_web",
+                                            new_message=user_content
+                                        ):
+                                            # Process web research events...
+                                            if hasattr(web_event, 'content') and web_event.content:
+                                                for web_part in web_event.content.parts:
+                                                    if hasattr(web_part, 'text') and web_part.text:
+                                                        web_text = web_part.text.strip()
+                                                        if len(web_text) > 50 and not web_text.startswith('```'):
+                                                            final_response_content = web_text
+                                                            break
+                                        
+                                        break  # Exit the main loop
+                                except json.JSONDecodeError:
+                                    pass
+                                    
                             # Try to parse as JSON (agent outputs)
-                            if text_content.startswith('```json'):
+                            elif text_content.startswith('```json'):
                                 json_content = text_content.replace('```json', '').replace('```', '').strip()
                                 parsed_data = json.loads(json_content)
                                 
-                                # Handle query generation stage
-                                if isinstance(parsed_data, list) and event_count <= 3:
+                                # Handle coordinator decision (legacy support)
+                                if isinstance(parsed_data, dict) and "response_type" in parsed_data and coordinator_decision is None:
+                                    coordinator_decision = parsed_data
+                                    
+                                    if parsed_data["response_type"] == "direct_answer":
+                                        # Direct answer case
+                                        yield format_stream_event("generate_query", {
+                                            "query": query,
+                                            "status": "answering_directly",
+                                            "reasoning": parsed_data.get("reasoning", "")
+                                        })
+                                        
+                                        # Use direct answer if provided by coordinator
+                                        if "direct_answer" in parsed_data:
+                                            final_response_content = parsed_data["direct_answer"]
+                                            direct_answer_provided = True
+                                            yield format_stream_event("finalize_answer", {
+                                                "status": "direct_answer_ready",
+                                                "confidence": parsed_data.get("confidence", 0.9)
+                                            })
+                                    
+                                    elif parsed_data["response_type"] == "web_research":
+                                        # Web research case
+                                        yield format_stream_event("generate_query", {
+                                            "query": query,
+                                            "status": "needs_web_research",
+                                            "reasoning": parsed_data.get("reasoning", "")
+                                        })
+                                
+                                # Handle query generation stage (only if web research is needed)
+                                elif isinstance(parsed_data, list) and event_count <= 5 and coordinator_decision and coordinator_decision["response_type"] == "web_research":
                                     yield format_stream_event("generate_query", {
                                         "query_list": parsed_data
                                     })
@@ -222,7 +300,7 @@ async def research_and_answer_with_agent(
                                             sources.extend(parsed_data["sources"])
                                 
                                 # Handle quality analysis
-                                elif isinstance(parsed_data, dict) and "confidence" in parsed_data:
+                                elif isinstance(parsed_data, dict) and "confidence" in parsed_data and "is_sufficient" in parsed_data:
                                     yield format_stream_event("reflection", {
                                         "is_sufficient": parsed_data.get("is_sufficient", True),
                                         "confidence": parsed_data.get("confidence", 0.7),
@@ -230,7 +308,7 @@ async def research_and_answer_with_agent(
                                     })
                                 
                                 # Handle refinement queries
-                                elif isinstance(parsed_data, list) and event_count > 3:
+                                elif isinstance(parsed_data, list) and event_count > 5:
                                     if parsed_data:  # Non-empty list means more research needed
                                         yield format_stream_event("web_research", {
                                             "query": "follow-up research",
@@ -244,19 +322,31 @@ async def research_and_answer_with_agent(
                                             "reason": "No additional queries needed"
                                         })
                             
-                            # Handle final answer (non-JSON text)
-                            elif not text_content.startswith('```') and len(text_content) > 100:
+                            # Handle direct answer (non-JSON text from coordinator)
+                            elif not text_content.startswith('```') and not text_content.startswith('{') and len(text_content) > 20:
+                                # This is likely a direct answer from the coordinator
                                 final_response_content = text_content
+                                direct_answer_provided = True
+                                yield format_stream_event("generate_query", {
+                                    "query": query,
+                                    "status": "answering_directly"
+                                })
                                 yield format_stream_event("finalize_answer", {
-                                    "status": "synthesizing"
+                                    "status": "direct_answer_ready"
                                 })
                                 
                         except json.JSONDecodeError:
-                            # Handle final answer (non-JSON text)
-                            if len(text_content) > 100:
+                            # Handle direct answer (non-JSON text)
+                            if len(text_content) > 20 and not text_content.startswith('{'):
+                                # This is likely a direct answer from the coordinator
                                 final_response_content = text_content
+                                direct_answer_provided = True
+                                yield format_stream_event("generate_query", {
+                                    "query": query,
+                                    "status": "answering_directly"
+                                })
                                 yield format_stream_event("finalize_answer", {
-                                    "status": "synthesizing"
+                                    "status": "direct_answer_ready"
                                 })
                     
                     # Legacy support: Handle function calls if present
@@ -385,7 +475,7 @@ async def research_and_answer_with_agent(
                                 })
                     
                     # Handle final text response
-                    elif hasattr(part, 'text') and part.text and not final_response_content:
+                    elif hasattr(part, 'text') and part.text and not final_response_content and not direct_answer_provided:
                         final_response_content = part.text
                         
                         # Send final message
@@ -406,7 +496,7 @@ async def research_and_answer_with_agent(
                 "type": "ai",
                 "content": final_response_content,
                 "id": message_id,
-                "sources": sources
+                "sources": sources if not direct_answer_provided else []  # Direct answers don't need sources
             }
             yield format_stream_event("message", final_message, message_id)
         else:

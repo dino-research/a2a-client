@@ -7,7 +7,9 @@ A fullstack AI research assistant powered by Google Agent Development Kit (ADK) 
 ## Features
 
 - 🤖 **AI Research Assistant**: Powered by Google Gemini and Agent Development Kit
+- 🧠 **Smart Coordinator Agent**: Automatically decides whether to answer directly or use web research
 - 🔍 **Real-time Web Search**: Integrated Tavily Search with source attribution  
+- ⚡ **Direct Answer Mode**: Instant responses for personal questions and basic knowledge
 - 🇻🇳 **Vietnamese Language Support**: Natural responses in Vietnamese
 - 📡 **Streaming Responses**: Real-time response streaming with activity timeline
 - 🌐 **Modern Web Interface**: React frontend with beautiful UI components
@@ -143,12 +145,27 @@ Open your browser and navigate to:
 
 ### 1. ADK Agent Architecture
 
-The application now uses Google Agent Development Kit (ADK) with a properly structured agent:
+The application now uses Google Agent Development Kit (ADK) with an intelligent coordinator system:
 
-1. **LlmAgent**: Core intelligence powered by Gemini 2.0 Flash
-2. **Tools Integration**: `conduct_comprehensive_research` tool handles the entire research pipeline
-3. **Automatic Research**: Agent autonomously decides when and how to use research tools
-4. **Intelligent Orchestration**: ADK manages tool calls, context, and response generation
+1. **Coordinator Agent**: Analyzes incoming questions and decides the appropriate response method
+2. **Direct Answer Agent**: Handles personal questions, greetings, and basic knowledge without web search
+3. **Web Research Workflow**: Triggered only when current/specific information is needed
+4. **LlmAgent**: Core intelligence powered by Gemini 2.0 Flash
+5. **Intelligent Orchestration**: ADK manages the entire workflow based on question type
+
+#### Question Classification:
+
+**Direct Answer (No Web Search):**
+- Personal introductions: "Tôi là Thái", "Mình tên Nam"
+- Greetings: "Xin chào", "Hello"
+- Basic math: "2+2=?", "Diện tích hình vuông"
+- Common knowledge: "Trái đất là gì?"
+
+**Web Research Required:**
+- Current news: "Tình hình kinh tế mới nhất"
+- Recent events: "Chính sách mới của chính phủ"
+- Live data: "Giá bitcoin hôm nay"
+- Specialized information requiring sources
 
 ### 2. Research Pipeline
 
