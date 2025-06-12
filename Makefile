@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: help dev-frontend dev-backend dev install-backend test-agent
 
 help:

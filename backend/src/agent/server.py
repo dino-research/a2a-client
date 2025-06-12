@@ -30,7 +30,7 @@ from prompts import (
 )
 
 # Import the research agent
-from adk_agent import research_agent
+from adk_agent_workflow import create_research_agent
 
 try:
     from app import create_frontend_router
@@ -79,12 +79,8 @@ app.mount(
 APP_NAME = "gemini_research_agent"
 session_service = InMemorySessionService()
 
-# Create runner with the research agent
-runner = Runner(
-    agent=research_agent,
-    app_name=APP_NAME,
-    session_service=session_service
-)
+# Note: Runner is now created dynamically in research_and_answer_with_agent function
+# to support different models and effort settings per request
 
 # Pydantic models
 class Message(BaseModel):
@@ -108,9 +104,26 @@ def format_stream_event(event_type: str, data: Dict, message_id: str = None) -> 
     }
     return f"data: {json.dumps(event)}\n\n"
 
-async def research_and_answer_with_agent(query: str, user_id: str = "default_user", conversation_context: str = "") -> AsyncGenerator[str, None]:
+async def research_and_answer_with_agent(
+    query: str, 
+    user_id: str = "default_user", 
+    conversation_context: str = "",
+    model: str = "gemini-2.0-flash",
+    initial_search_query_count: int = 3,
+    max_research_loops: int = 3
+) -> AsyncGenerator[str, None]:
     """Research query using ADK agent and provide streaming response."""
     try:
+        # Create agent with specified model and effort settings
+        research_agent = create_research_agent(model, initial_search_query_count, max_research_loops)
+        
+        # Create runner with the dynamic agent
+        runner = Runner(
+            agent=research_agent,
+            app_name=APP_NAME,
+            session_service=session_service
+        )
+        
         # Use a persistent session for each user to maintain context
         session_id = f"session_{user_id}"
         
@@ -143,12 +156,25 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
         if conversation_context:
             user_message = f"Bối cảnh cuộc hội thoại trước:\n{conversation_context}\n\nCâu hỏi hiện tại: {query}"
         
+        # Add effort level instructions to the user message
+        effort_instruction = ""
+        if initial_search_query_count == 1:
+            effort_instruction = "\n\nMức độ nghiên cứu: Thấp (1 truy vấn tìm kiếm, 1 vòng nghiên cứu)"
+        elif initial_search_query_count == 5:
+            effort_instruction = "\n\nMức độ nghiên cứu: Cao (5 truy vấn tìm kiếm, 10 vòng nghiên cứu tối đa)"
+        else:
+            effort_instruction = "\n\nMức độ nghiên cứu: Trung bình (3 truy vấy tìm kiếm, 3 vòng nghiên cứu)"
+        
+        user_message += effort_instruction
+        
         user_content = Content(role='user', parts=[Part(text=user_message)])
         
         # Variables to track the agent's response
         final_response_content = ""
         sources = []
         research_step = "initial"
+        research_loops = 0  # Track research loops to enforce max_research_loops
+        event_count = 0
         
         # Initial event to show timeline starts
         yield format_stream_event("generate_query", {
@@ -162,13 +188,79 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
             session_id=session_id,
             new_message=user_content
         ):
-            # Process ADK events to extract tool information
+            event_count += 1
             
-            # Check if event has function call or function response
+            # Handle workflow events (text responses from SequentialAgent)
             if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
                 for part in event.content.parts:
-                    # Handle function calls (tool requests)
-                    if hasattr(part, 'function_call') and part.function_call:
+                    # Handle text responses from workflow agents
+                    if hasattr(part, 'text') and part.text:
+                        text_content = part.text.strip()
+                        
+                        # Detect different workflow stages based on content patterns
+                        try:
+                            # Try to parse as JSON (agent outputs)
+                            if text_content.startswith('```json'):
+                                json_content = text_content.replace('```json', '').replace('```', '').strip()
+                                parsed_data = json.loads(json_content)
+                                
+                                # Handle query generation stage
+                                if isinstance(parsed_data, list) and event_count <= 3:
+                                    yield format_stream_event("generate_query", {
+                                        "query_list": parsed_data
+                                    })
+                                
+                                # Handle research results
+                                elif isinstance(parsed_data, dict) and parsed_data.get("status") == "success":
+                                    if "sources" in str(parsed_data) or "content" in parsed_data:
+                                        yield format_stream_event("web_research", {
+                                            "sources_gathered": parsed_data.get("sources", []),
+                                            "query": query,
+                                            "status": "success"
+                                        })
+                                        if parsed_data.get("sources"):
+                                            sources.extend(parsed_data["sources"])
+                                
+                                # Handle quality analysis
+                                elif isinstance(parsed_data, dict) and "confidence" in parsed_data:
+                                    yield format_stream_event("reflection", {
+                                        "is_sufficient": parsed_data.get("is_sufficient", True),
+                                        "confidence": parsed_data.get("confidence", 0.7),
+                                        "follow_up_queries": []
+                                    })
+                                
+                                # Handle refinement queries
+                                elif isinstance(parsed_data, list) and event_count > 3:
+                                    if parsed_data:  # Non-empty list means more research needed
+                                        yield format_stream_event("web_research", {
+                                            "query": "follow-up research",
+                                            "status": "refining"
+                                        })
+                                        research_loops += 1
+                                    else:  # Empty list means research is sufficient
+                                        yield format_stream_event("reflection", {
+                                            "is_sufficient": True,
+                                            "confidence": 0.8,
+                                            "reason": "No additional queries needed"
+                                        })
+                            
+                            # Handle final answer (non-JSON text)
+                            elif not text_content.startswith('```') and len(text_content) > 100:
+                                final_response_content = text_content
+                                yield format_stream_event("finalize_answer", {
+                                    "status": "synthesizing"
+                                })
+                                
+                        except json.JSONDecodeError:
+                            # Handle final answer (non-JSON text)
+                            if len(text_content) > 100:
+                                final_response_content = text_content
+                                yield format_stream_event("finalize_answer", {
+                                    "status": "synthesizing"
+                                })
+                    
+                    # Legacy support: Handle function calls if present
+                    elif hasattr(part, 'function_call') and part.function_call:
                         tool_name = part.function_call.name
 
                         
@@ -191,10 +283,19 @@ async def research_and_answer_with_agent(query: str, user_id: str = "default_use
                             })
                             
                         elif tool_name == "iterative_refinement":
-                            yield format_stream_event("web_research", {
-                                "query": "follow-up research",
-                                "status": "refining"
-                            })
+                            # Check if we should continue research loops
+                            if research_loops < max_research_loops:
+                                yield format_stream_event("web_research", {
+                                    "query": "follow-up research",
+                                    "status": "refining"
+                                })
+                                research_loops += 1
+                            else:
+                                yield format_stream_event("reflection", {
+                                    "is_sufficient": True,
+                                    "confidence": 0.8,
+                                    "reason": f"Reached maximum research loops ({max_research_loops})"
+                                })
                             
                         elif tool_name == "finalize_answer":
                             yield format_stream_event("finalize_answer", {
@@ -362,7 +463,14 @@ async def create_run(assistant_id: str, run_request: RunRequest):
     
     async def generate():
         yield "event: message\n"
-        async for chunk in research_and_answer_with_agent(query, user_id, conversation_context):
+        async for chunk in research_and_answer_with_agent(
+            query, 
+            user_id, 
+            conversation_context, 
+            run_request.reasoning_model or "gemini-2.0-flash",
+            run_request.initial_search_query_count or 3,
+            run_request.max_research_loops or 3
+        ):
             yield chunk
         yield "event: end\n"
         yield "data: [DONE]\n\n"
