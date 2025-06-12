@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help dev-frontend dev-backend dev install-backend test-agent test-coordinator debug-coordinator
+.PHONY: help dev-frontend dev-backend dev install-backend test-coordinator test-llm-reasoning
 
 help:
 	@echo "Available commands:"
@@ -8,10 +8,8 @@ help:
 	@echo "  make dev-backend       - Starts the Gemini backend development server (FastAPI)"
 	@echo "  make dev               - Starts both frontend and backend development servers"
 	@echo "  make install-backend   - Install backend dependencies"
-	@echo "  make test-agent        - Test the ADK research agent"
-	@echo "  make test-tavily       - Test Tavily Search integration"
 	@echo "  make test-coordinator  - Test the coordinator agent functionality"
-	@echo "  make debug-coordinator - Debug coordinator agent with simple test"
+	@echo "  make test-llm-reasoning - Test LLM reasoning capability for classification"
 
 install-backend:
 	@echo "Installing Gemini backend dependencies..."
@@ -25,21 +23,13 @@ dev-backend:
 	@echo "Starting Gemini backend development server..."
 	@cd backend && source .venv/bin/activate && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024 --reload
 
-test-agent:
-	@echo "Testing ADK research agent..."
-	@cd backend && source .venv/bin/activate && python test_adk_agent.py
-
-test-tavily:
-	@echo "Testing Tavily Search integration..."
-	@cd backend && source .venv/bin/activate && python test_tavily_search.py
-
 test-coordinator:
 	@echo "Testing coordinator agent functionality..."
 	@cd backend && source .venv/bin/activate && python test_coordinator.py
 
-debug-coordinator:
-	@echo "Debugging coordinator agent..."
-	@cd backend && source .venv/bin/activate && python debug_coordinator.py
+test-llm-reasoning:
+	@echo "Testing LLM reasoning capability..."
+	@cd backend && source .venv/bin/activate && python test_llm_reasoning.py
 
 # Run frontend and backend concurrently
 dev:

@@ -44,6 +44,11 @@ async def test_coordinator_agent():
             "description": "Greeting"
         },
         {
+            "question": "Thời tiết Hà Nội hôm nay thế nào",
+            "expected_type": "web_research",
+            "description": "Weather requiring web search"
+        },
+        {
             "question": "Tình hình kinh tế Việt Nam mới nhất",
             "expected_type": "web_research",
             "description": "Current news requiring web search"

@@ -30,7 +30,7 @@ from prompts import (
 )
 
 # Import the research agent
-from adk_agent_workflow import create_research_agent
+from adk_agent_workflow import create_research_agent, create_coordinator_agent
 
 try:
     from app import create_frontend_router
@@ -114,8 +114,8 @@ async def research_and_answer_with_agent(
 ) -> AsyncGenerator[str, None]:
     """Research query using ADK agent and provide streaming response."""
     try:
-        # Create agent with specified model and effort settings
-        research_agent = create_research_agent(model, initial_search_query_count, max_research_loops)
+        # Create coordinator agent instead of research agent
+        research_agent = create_coordinator_agent(model)
         
         # Create runner with the dynamic agent
         runner = Runner(
@@ -213,38 +213,16 @@ async def research_and_answer_with_agent(
                                             "reasoning": parsed_data.get("reasoning", "")
                                         })
                                         
-                                        # Now trigger the actual web research workflow
-                                        # We'll handle this by creating a new research agent call
+                                        # This is a web research decision - let normal flow handle it
                                         coordinator_decision = {"response_type": "web_research"}
                                         
-                                        # Call the original research workflow
-                                        from adk_agent_workflow import create_iterative_research_agent, create_answer_finalizer_agent
-                                        web_research_agent = create_iterative_research_agent(model)
-                                        answer_finalizer = create_answer_finalizer_agent(model)
+                                        yield format_stream_event("generate_query", {
+                                            "query": query,
+                                            "status": "needs_web_research",
+                                            "reasoning": parsed_data.get("reasoning", "")
+                                        })
                                         
-                                        # Create a new runner for web research
-                                        web_runner = Runner(
-                                            agent=web_research_agent,
-                                            app_name=f"{APP_NAME}_web_research",
-                                            session_service=session_service
-                                        )
-                                        
-                                        # Execute web research
-                                        async for web_event in web_runner.run_async(
-                                            user_id=user_id,
-                                            session_id=f"{session_id}_web",
-                                            new_message=user_content
-                                        ):
-                                            # Process web research events...
-                                            if hasattr(web_event, 'content') and web_event.content:
-                                                for web_part in web_event.content.parts:
-                                                    if hasattr(web_part, 'text') and web_part.text:
-                                                        web_text = web_part.text.strip()
-                                                        if len(web_text) > 50 and not web_text.startswith('```'):
-                                                            final_response_content = web_text
-                                                            break
-                                        
-                                        break  # Exit the main loop
+                                        # Continue normal flow - agent will handle research automatically
                                 except json.JSONDecodeError:
                                     pass
                                     
@@ -367,6 +345,12 @@ async def research_and_answer_with_agent(
                                 "status": "searching"
                             })
                             
+                        elif tool_name == "tavily_research_tool":
+                            yield format_stream_event("web_research", {
+                                "query": query,
+                                "status": "searching"
+                            })
+                            
                         elif tool_name == "analyze_research_quality":
                             yield format_stream_event("reflection", {
                                 "status": "analyzing"
@@ -437,6 +421,28 @@ async def research_and_answer_with_agent(
                                     "status": "completed"
                                 })
                                 
+                        elif tool_name == "tavily_research_tool":
+                            if tool_result and isinstance(tool_result, dict):
+                                if tool_result.get("sources"):
+                                    sources.extend(tool_result["sources"])
+                                    yield format_stream_event("web_research", {
+                                        "sources_gathered": tool_result["sources"],
+                                        "query": tool_result.get("query", query),
+                                        "status": "success"
+                                    })
+                                else:
+                                    yield format_stream_event("web_research", {
+                                        "sources_gathered": [],
+                                        "query": query,
+                                        "status": "completed"
+                                    })
+                            else:
+                                yield format_stream_event("web_research", {
+                                    "sources_gathered": [],
+                                    "query": query,
+                                    "status": "completed"
+                                })
+                                
                         elif tool_name == "analyze_research_quality":
                             confidence = 0.7  # Default confidence
                             is_sufficient = True
@@ -475,19 +481,26 @@ async def research_and_answer_with_agent(
                                 })
                     
                     # Handle final text response
-                    elif hasattr(part, 'text') and part.text and not final_response_content and not direct_answer_provided:
-                        final_response_content = part.text
-                        
-                        # Send final message
-                        message_id = f"msg_{datetime.now().timestamp()}"
-                        final_message = {
-                            "type": "ai",
-                            "content": final_response_content,
-                            "id": message_id,
-                            "sources": sources
-                        }
-                        yield format_stream_event("message", final_message, message_id)
-                        return
+                    elif hasattr(part, 'text') and part.text:
+                        # Accumulate text content
+                        text_content = part.text.strip()
+                        if text_content and len(text_content) > 10:  # Meaningful content
+                            if not final_response_content:
+                                final_response_content = text_content
+                            else:
+                                final_response_content += " " + text_content
+                            
+                            # If this looks like a complete response, send it immediately
+                            if (text_content.endswith('.') or text_content.endswith('!') or text_content.endswith('?')) and len(text_content) > 50:
+                                message_id = f"msg_{datetime.now().timestamp()}"
+                                final_message = {
+                                    "type": "ai", 
+                                    "content": final_response_content,
+                                    "id": message_id,
+                                    "sources": sources
+                                }
+                                yield format_stream_event("message", final_message, message_id)
+                                return
         
         # If we reach here, send final response if we have one
         if final_response_content:

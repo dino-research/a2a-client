@@ -108,7 +108,7 @@ const mdComponents = {
   pre: ({ className, children, ...props }: MdComponentProps) => (
     <pre
       className={cn(
-        "bg-neutral-900 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3",
+        "bg-neutral-900 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3 max-w-full",
         className
       )}
       {...props}
@@ -120,8 +120,8 @@ const mdComponents = {
     <hr className={cn("border-neutral-600 my-4", className)} {...props} />
   ),
   table: ({ className, children, ...props }: MdComponentProps) => (
-    <div className="my-3 overflow-x-auto">
-      <table className={cn("border-collapse w-full", className)} {...props}>
+    <div className="my-3 overflow-x-auto max-w-full">
+      <table className={cn("border-collapse w-full min-w-0", className)} {...props}>
         {children}
       </table>
     </div>
@@ -160,7 +160,7 @@ const HumanMessageBubble: React.FC<HumanMessageBubbleProps> = ({
 }) => {
   return (
     <div
-      className={`text-white rounded-3xl break-words min-h-7 bg-neutral-700 max-w-[100%] sm:max-w-[90%] px-4 pt-3 rounded-br-lg`}
+      className="text-white rounded-3xl break-words min-h-7 bg-neutral-700 max-w-[85%] md:max-w-[80%] px-4 pt-3 rounded-br-lg overflow-hidden"
     >
       <ReactMarkdown components={mdComponents}>
         {typeof message.content === "string"
@@ -200,7 +200,7 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
   const isLiveActivityForThisBubble = isLastMessage && isOverallLoading;
 
   return (
-    <div className={`relative break-words flex flex-col`}>
+    <div className="relative break-words flex flex-col max-w-[85%] md:max-w-[80%] overflow-hidden">
       {activityForThisBubble && activityForThisBubble.length > 0 && (
         <div className="mb-3 border-b border-neutral-700 pb-3 text-xs">
           <ActivityTimeline
@@ -209,14 +209,16 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
           />
         </div>
       )}
-      <ReactMarkdown components={mdComponents}>
-        {typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content)}
-      </ReactMarkdown>
+      <div className="overflow-hidden">
+        <ReactMarkdown components={mdComponents}>
+          {typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content)}
+        </ReactMarkdown>
+      </div>
       <Button
         variant="default"
-        className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300 self-end"
+        className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300 self-end mt-2 flex-shrink-0"
         onClick={() =>
           handleCopy(
             typeof message.content === "string"
@@ -267,9 +269,9 @@ export function ChatMessagesView({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <ScrollArea className="flex-grow" ref={scrollAreaRef}>
-        <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto pt-16">
+    <div className="flex flex-col h-full max-h-full overflow-hidden">
+      <ScrollArea className="flex-1 overflow-y-auto overflow-x-hidden" ref={scrollAreaRef}>
+        <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto pt-4 pb-4">
           {messages.map((message, index) => {
             const isLast = index === messages.length - 1;
             return (
@@ -325,13 +327,15 @@ export function ChatMessagesView({
             )}
         </div>
       </ScrollArea>
-      <InputForm
-        onSubmit={onSubmit}
-        isLoading={isLoading}
-        onCancel={onCancel}
-        onNewSearch={onNewSearch}
-        hasHistory={messages.length > 0}
-      />
+      <div className="flex-shrink-0 border-t border-neutral-700">
+        <InputForm
+          onSubmit={onSubmit}
+          isLoading={isLoading}
+          onCancel={onCancel}
+          onNewSearch={onNewSearch}
+          hasHistory={messages.length > 0}
+        />
+      </div>
     </div>
   );
 }

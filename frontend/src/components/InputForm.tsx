@@ -51,23 +51,22 @@ export const InputForm: React.FC<InputFormProps> = ({
   return (
     <form
       onSubmit={handleInternalSubmit}
-      className={`flex flex-col gap-2 p-3 `}
+      className="flex flex-col gap-2 p-3 bg-neutral-800"
     >
       <div
         className={`flex flex-row items-center justify-between text-white rounded-3xl rounded-bl-sm ${
           hasHistory ? "rounded-br-sm" : ""
-        } break-words min-h-7 bg-neutral-700 px-4 pt-3 `}
+        } break-words min-h-7 bg-neutral-700 px-4 pt-3 w-full overflow-hidden`}
       >
         <Textarea
           value={internalInputValue}
           onChange={(e) => setInternalInputValue(e.target.value)}
           onKeyDown={handleInternalKeyDown}
           placeholder="Who won the Euro 2024 and scored the most goals?"
-          className={`w-full text-neutral-100 placeholder-neutral-500 resize-none border-0 focus:outline-none focus:ring-0 outline-none focus-visible:ring-0 shadow-none 
-                        md:text-base  min-h-[56px] max-h-[200px]`}
+          className="w-full text-neutral-100 placeholder-neutral-500 resize-none border-0 focus:outline-none focus:ring-0 outline-none focus-visible:ring-0 shadow-none md:text-base min-h-[56px] max-h-[200px] overflow-y-auto"
           rows={1}
         />
-        <div className="-mt-3">
+        <div className="-mt-3 flex-shrink-0">
           {isLoading ? (
             <Button
               type="button"
@@ -95,10 +94,10 @@ export const InputForm: React.FC<InputFormProps> = ({
           )}
         </div>
       </div>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-row gap-2">
-          <div className="flex flex-row gap-2 bg-neutral-700 border-neutral-600 text-neutral-300 focus:ring-neutral-500 rounded-xl rounded-t-sm pl-2  max-w-[100%] sm:max-w-[90%]">
-            <div className="flex flex-row items-center text-sm">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex flex-row gap-2 flex-wrap">
+          <div className="flex flex-row gap-2 bg-neutral-700 border-neutral-600 text-neutral-300 focus:ring-neutral-500 rounded-xl rounded-t-sm pl-2 min-w-0">
+            <div className="flex flex-row items-center text-sm whitespace-nowrap">
               <Brain className="h-4 w-4 mr-2" />
               Effort
             </div>
@@ -128,8 +127,8 @@ export const InputForm: React.FC<InputFormProps> = ({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-row gap-2 bg-neutral-700 border-neutral-600 text-neutral-300 focus:ring-neutral-500 rounded-xl rounded-t-sm pl-2  max-w-[100%] sm:max-w-[90%]">
-            <div className="flex flex-row items-center text-sm ml-2">
+          <div className="flex flex-row gap-2 bg-neutral-700 border-neutral-600 text-neutral-300 focus:ring-neutral-500 rounded-xl rounded-t-sm pl-2 min-w-0">
+            <div className="flex flex-row items-center text-sm ml-2 whitespace-nowrap">
               <Cpu className="h-4 w-4 mr-2" />
               Model
             </div>
@@ -168,7 +167,7 @@ export const InputForm: React.FC<InputFormProps> = ({
         </div>
         {hasHistory && (
           <Button
-            className="bg-neutral-700 border-neutral-600 text-neutral-300 cursor-pointer rounded-xl rounded-t-sm pl-2 "
+            className="bg-neutral-700 border-neutral-600 text-neutral-300 cursor-pointer rounded-xl rounded-t-sm pl-2 flex-shrink-0"
             variant="default"
             onClick={onNewSearch || (() => window.location.reload())}
           >

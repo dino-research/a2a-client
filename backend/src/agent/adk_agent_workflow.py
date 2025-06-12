@@ -47,50 +47,113 @@ def create_coordinator_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
     """
     Create an LlmAgent that coordinates and decides whether web research is needed.
     """
+    
+    def tavily_research_tool(query: str) -> Dict:
+        """Tool function for Tavily research"""
+        try:
+            tavily_api_key = os.getenv("TAVILY_API_KEY")
+            if not tavily_api_key:
+                return {
+                    "status": "error",
+                    "query": query,
+                    "error": "TAVILY_API_KEY not found in environment variables",
+                    "research_date": get_current_date()
+                }
+            
+            tavily_client = TavilyClient(api_key=tavily_api_key)
+            current_date = get_current_date()
+            
+            # Perform search with Tavily
+            search_result = tavily_client.search(
+                query=query,
+                search_depth="advanced",
+                max_results=5,
+                include_answer=True,
+                include_raw_content=False,
+                include_domains=None,
+                exclude_domains=None
+            )
+            
+            # Extract sources from Tavily results
+            sources = []
+            search_content = ""
+            
+            if search_result.get("answer"):
+                search_content = search_result["answer"]
+            
+            # Process search results
+            if search_result.get("results"):
+                for result in search_result["results"]:
+                    sources.append({
+                        "title": result.get("title", "Không có tiêu đề"),
+                        "url": result.get("url", ""),
+                        "snippet": result.get("content", "")[:300] + "..." if result.get("content") else ""
+                    })
+                    
+                    # Append content for comprehensive research
+                    if result.get("content"):
+                        search_content += f"\n\n{result['content'][:500]}..."
+            
+            # If no answer was provided by Tavily, create summary from results
+            if not search_content and sources:
+                search_content = f"Kết quả tìm kiếm cho '{query}':\n\n"
+                for i, source in enumerate(sources[:3], 1):
+                    search_content += f"{i}. {source['title']}: {source['snippet']}\n\n"
+            
+            return {
+                "status": "success",
+                "query": query,
+                "content": search_content,
+                "sources": sources,
+                "research_date": current_date,
+                "search_engine": "Tavily"
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "query": query,
+                "error": str(e),
+                "research_date": get_current_date()
+            }
+    
     instruction = f"""
-Bạn là một agent điều phối thông minh. Nhiệm vụ của bạn là phân tích câu hỏi của người dùng và quyết định cách xử lý phù hợp.
+Bạn là một AI assistant thông minh có khả năng phân tích câu hỏi và quyết định cách trả lời tối ưu. Ngày hiện tại: {get_current_date()}
 
-Các loại câu hỏi và cách xử lý:
+**QUY TRÌNH XỬ LÝ:**
 
-1. **Câu hỏi cá nhân/giới thiệu** (Không cần search web):
-   - Tự giới thiệu: "Tôi là Thái", "Tên tôi là Nam", "Mình là sinh viên"
-   - Thông tin cá nhân: tuổi, sở thích, công việc của người dùng
-   - Chào hỏi: "Xin chào", "Hello", "Chào bạn"
-   - Cảm xúc cá nhân: "Tôi buồn", "Mình vui"
+BƯỚC 1: Phân tích câu hỏi
+- Câu hỏi cá nhân/chào hỏi/giới thiệu → Trả lời trực tiếp
+- Kiến thức cơ bản không đổi theo thời gian → Trả lời trực tiếp  
+- Thông tin cần cập nhật/tin tức/dữ liệu thời gian thực → Tìm kiếm web
 
-2. **Câu hỏi kiến thức cơ bản** (Không cần search web):
-   - Toán học cơ bản: 2+2=?, diện tích hình vuông
-   - Định nghĩa đơn giản: "Trái đất là gì?", "Nước là gì?"
-   - Kiến thức phổ thông không đòi hỏi thông tin mới nhất
+BƯỚC 2: Thực hiện
+- Nếu trả lời trực tiếp: Đưa ra câu trả lời hoàn chỉnh bằng tiếng Việt
+- Nếu cần tìm kiếm: Sử dụng tavily_research_tool rồi tổng hợp kết quả
 
-3. **Câu hỏi cần nghiên cứu web** (Cần search web):
-   - Tin tức mới: "Tình hình kinh tế mới nhất", "Chính sách mới"
-   - Thông tin cập nhật: giá cả, sự kiện hiện tại
-   - Dữ liệu cụ thể: thống kê, báo cáo
-   - Thông tin chuyên môn sâu cần nguồn tham khảo
+**VÍ DỤ:**
 
-**Quy tắc quyết định:**
-- Nếu có thể trả lời từ kiến thức cơ bản → response_type: "direct_answer"
-- Nếu cần thông tin mới/cập nhật → response_type: "web_research"
-- Khi nghi ngờ → response_type: "web_research" (để đảm bảo độ chính xác)
+Câu hỏi: "Chào bạn, tôi là Thái"
+→ Trả lời trực tiếp: "Chào bạn Thái! Tôi là AI assistant, rất vui được làm quen với bạn. Tôi có thể giúp bạn trả lời câu hỏi, tìm kiếm thông tin hoặc hỗ trợ trong nhiều công việc khác. Bạn cần tôi giúp gì không?"
 
-**Định dạng output:** JSON với định dạng:
-{{
-    "response_type": "direct_answer" hoặc "web_research",
-    "reasoning": "Lý do tại sao chọn phương pháp này",
-    "confidence": số từ 0.0 đến 1.0,
-    "direct_answer": "Câu trả lời trực tiếp (chỉ có khi response_type là direct_answer)",
-    "original_question": "Câu hỏi gốc của người dùng"
-}}
+Câu hỏi: "Thời tiết Hà Nội hôm nay thế nào?"
+→ Tìm kiếm web với query "thời tiết Hà Nội hôm nay" rồi tổng hợp kết quả
 
-Ngày hiện tại: {get_current_date()}
+Câu hỏi: "2 + 2 bằng bao nhiêu?"
+→ Trả lời trực tiếp: "2 + 2 = 4"
+
+**LƯU Ý:**
+- Luôn trả lời bằng tiếng Việt
+- Không trả về JSON, chỉ trả lời trực tiếp hoặc sử dụng tool
+- Khi sử dụng tool, hãy tổng hợp kết quả thành câu trả lời hoàn chỉnh
 """
     
     return LlmAgent(
         name="coordinator",
         model=model,
+        tools=[tavily_research_tool],
         instruction=instruction,
-        description="Agent điều phối quyết định cách thức xử lý câu hỏi"
+        description="Agent điều phối thông minh có khả năng trả lời trực tiếp hoặc tìm kiếm web"
     )
 
 # ============================================================================
@@ -415,72 +478,74 @@ Nguyên tắc:
 
 def create_coordinator_workflow_agent(model: str = "gemini-2.0-flash") -> LlmAgent:
     """
-    Create a smart coordinator agent that handles the entire workflow logic.
+    Create an intelligent coordinator agent that uses LLM reasoning to decide response approach.
     """
     instruction = f"""
-Bạn là agent điều phối thông minh, quản lý toàn bộ quy trình xử lý câu hỏi của người dùng.
+Bạn là một AI coordinator thông minh. Nhiệm vụ của bạn là phân tích câu hỏi của người dùng và quyết định cách trả lời phù hợp nhất.
 
-**BƯỚC 1: PHÂN TÍCH CÂU HỎI**
+**TRIẾT LÝ QUYẾT ĐỊNH:**
 
-Đầu tiên, phân tích câu hỏi và quyết định cách xử lý:
+Sử dụng khả năng hiểu biết tự nhiên của bạn để đánh giá xem câu hỏi có cần thông tin mới nhất/cập nhật từ internet hay không.
 
-1. **Câu hỏi cá nhân/chào hỏi/giới thiệu** (Trả lời trực tiếp):
-   - Tự giới thiệu: "Tôi là Thái", "Chào bạn, tôi là Nam", "Mình tên Lan"
-   - Chào hỏi: "Xin chào", "Hello", "Chào bạn", "Hi"
-   - Kết hợp: "Chào bạn, Tôi là Thái" → Trả lời thân thiện
-   - Thông tin cá nhân: tuổi, sở thích, công việc
-   - Cảm xúc cá nhân: "Tôi buồn", "Mình vui"
+**NGUYÊN TẮC QUYẾT ĐỊNH:**
 
-2. **Câu hỏi kiến thức cơ bản** (Trả lời trực tiếp):
-   - Toán học đơn giản: "2+2=?", "diện tích hình vuông"
-   - Định nghĩa cơ bản: "Trái đất là gì?", "Nước là gì?"
-   - Kiến thức phổ thông không cần cập nhật
+🤔 **Tự hỏi bản thân:**
+- Câu hỏi này có cần thông tin thời gian thực không?
+- Tôi có thể trả lời chính xác bằng kiến thức hiện có không?
+- Câu trả lời có thể thay đổi theo thời gian không?
+- Đây có phải thông tin cá nhân/chào hỏi/toán cơ bản không?
 
-3. **Câu hỏi cần nghiên cứu web**:
-   - Tin tức mới: "Tình hình kinh tế mới nhất"
-   - Thông tin thời gian thực: "Giá bitcoin hôm nay"
-   - Dữ liệu cụ thể cần nguồn tham khảo
+**QUY TRÌNH QUYẾT ĐỊNH:**
 
-**BƯỚC 2: XỬ LÝ THEO QUYẾT ĐỊNH**
-
-Nếu TRẮLỜI TRỰC TIẾP: Đưa ra câu trả lời ngay lập tức, thân thiện và hữu ích.
-
-Nếu CẦN NGHIÊN CỨU WEB: Thực hiện quy trình nghiên cứu web đầy đủ.
-
-**QUY TẮC QUAN TRỌNG:**
-- Luôn ưu tiên trả lời trực tiếp nếu có thể
-- Chỉ dùng web research khi thực sự cần thông tin mới/cập nhật
-- Trả lời bằng tiếng Việt, thân thiện và tự nhiên
+1. **Phân tích bản chất câu hỏi** - Đây là loại thông tin gì?
+2. **Đánh giá tính thời gian** - Thông tin này có "hết hạn" không?
+3. **Cân nhắc độ chính xác** - Tôi có chắc chắn với câu trả lời không?
+4. **Ra quyết định** - Trả lời trực tiếp hay cần web search?
 
 **ĐỊNH DẠNG OUTPUT:**
 
-CHỈ CÓ 2 CÁCH TRẢ LỜI:
+🎯 **Nếu có thể trả lời ngay** (personal, greeting, basic knowledge):
+Trả lời trực tiếp bằng văn bản tự nhiên
 
-1. **Trả lời trực tiếp** (cho câu hỏi cá nhân/chào hỏi/kiến thức cơ bản):
-Trả lời ngay bằng văn bản thường, ví dụ:
-"Chào bạn! Rất vui được gặp bạn Thái. Tôi là AI assistant, sẵn sàng giúp đỡ bạn bất cứ lúc nào. Bạn có câu hỏi gì cần tôi hỗ trợ không?"
-
-2. **Cần nghiên cứu web** (cho thông tin mới/thời gian thực):
-Chỉ trả về JSON format này:
+🔍 **Nếu cần thông tin cập nhật** (current events, real-time data):
 {{
     "action": "web_research_needed",
-    "query": "câu hỏi gốc",
-    "reasoning": "lý do cần nghiên cứu web"
+    "query": "câu hỏi gốc của người dùng",
+    "reasoning": "giải thích ngắn gọn tại sao cần web search"
 }}
 
-**LƯU Ý QUAN TRỌNG:**
-- Câu hỏi "Chào bạn, Tôi là Thái" → Trả lời trực tiếp
-- Câu hỏi "Giá bitcoin hôm nay" → JSON web research
-- KHÔNG BAO GIỜ trả lời JSON cho câu chào hỏi/giới thiệu!
+**VÍ DỤ MINH HỌA:**
 
-Ngày hiện tại: {get_current_date()}
+💬 "Chào bạn, tôi là Thái" 
+→ Trả lời trực tiếp (đây là lời chào/giới thiệu)
+
+🧮 "2 + 2 bằng mấy?"
+→ Trả lời trực tiếp (toán cơ bản, không đổi theo thời gian)
+
+🌤️ "Thời tiết Hà Nội hôm nay như thế nào?"
+→ JSON web search (thông tin thời gian thực, thay đổi hàng ngày)
+
+📈 "Giá vàng hiện tại"
+→ JSON web search (dữ liệu thời gian thực, biến động liên tục)
+
+📰 "Tin tức mới nhất về AI"
+→ JSON web search (thông tin mới, cần nguồn cập nhật)
+
+🏛️ "Thủ đô của Việt Nam là gì?"
+→ Trả lời trực tiếp (kiến thức cơ bản, không thay đổi)
+
+**LƯU Ý:**
+- Hãy tự tin với những gì bạn biết chắc chắn
+- Thừa nhận khi cần thông tin mới nhất
+- Ưu tiên trải nghiệm người dùng (nhanh khi có thể, chính xác khi cần thiết)
+- Ngày hiện tại: {get_current_date()}
 """
     
     return LlmAgent(
         name="coordinator_workflow",
         model=model,
         instruction=instruction,
-        description="Smart coordinator agent that handles the entire workflow"
+        description="Intelligent coordinator using LLM reasoning for decision making"
     )
 
 def create_research_agent(

@@ -7,7 +7,7 @@ A fullstack AI research assistant powered by Google Agent Development Kit (ADK) 
 ## Features
 
 - 🤖 **AI Research Assistant**: Powered by Google Gemini and Agent Development Kit
-- 🧠 **Smart Coordinator Agent**: Automatically decides whether to answer directly or use web research
+- 🧠 **Smart Coordinator Agent**: Automatically decides whether to answer directly or use web research using LLM reasoning
 - 🔍 **Real-time Web Search**: Integrated Tavily Search with source attribution  
 - ⚡ **Direct Answer Mode**: Instant responses for personal questions and basic knowledge
 - 🇻🇳 **Vietnamese Language Support**: Natural responses in Vietnamese
@@ -44,9 +44,11 @@ A fullstack AI research assistant powered by Google Agent Development Kit (ADK) 
 │   └── vite.config.ts
 ├── backend/            # Python backend
 │   ├── src/agent/
-│   │   ├── server.py   # FastAPI server
-│   │   ├── prompts.py  # AI prompts and configurations
-│   │   └── adk_agent.py # ADK agent implementation
+│   │   ├── server.py           # FastAPI server
+│   │   ├── prompts.py          # AI prompts and configurations  
+│   │   └── adk_agent_workflow.py # ADK agent implementation
+│   ├── test_coordinator.py     # Coordinator agent tests
+│   ├── test_llm_reasoning.py   # LLM reasoning tests
 │   └── pyproject.toml
 ├── Makefile           # Development commands
 └── README.md
@@ -59,6 +61,7 @@ Before getting started, make sure you have:
 - **Node.js 18+** and npm
 - **Python 3.11+** 
 - **Google Gemini API Key** - Get yours from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- **Tavily API Key** - Get yours from [Tavily](https://tavily.com) for web search functionality
 
 ## Quick Start
 
@@ -69,7 +72,7 @@ git clone <repository-url>
 cd a2a-client
 ```
 
-### 2. Configure Google Gemini API
+### 2. Configure API Keys
 
 Create a `.env` file in the `backend/` directory:
 
@@ -78,9 +81,10 @@ cd backend
 cp .env.example .env
 ```
 
-Edit `.env` and add your API key:
+Edit `.env` and add your API keys:
 ```env
 GEMINI_API_KEY="your_actual_gemini_api_key_here"
+TAVILY_API_KEY="your_actual_tavily_api_key_here"
 ```
 
 ### 3. Install Dependencies
@@ -99,18 +103,16 @@ cd frontend
 npm install
 ```
 
-### 4. Test the ADK Agent and Tavily Search
+### 4. Test the Coordinator Agent
 
-Before running the servers, test that the ADK agent and Tavily Search are working:
+Before running the servers, test that the coordinator agent is working:
 
 ```bash
-# Test ADK Agent
-make test-agent
-# Or manually: cd backend && source .venv/bin/activate && python test_adk_agent.py
+# Test Coordinator Agent
+make test-coordinator
 
-# Test Tavily Search Integration
-make test-tavily
-# Or manually: cd backend && source .venv/bin/activate && python test_tavily_search.py
+# Test LLM Reasoning Capability
+make test-llm-reasoning
 ```
 
 ### 5. Run Development Servers
@@ -125,13 +127,11 @@ make dev
 Backend (Terminal 1):
 ```bash
 make dev-backend
-# Or manually: cd backend && source .venv/bin/activate && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024 --reload
 ```
 
 Frontend (Terminal 2):
 ```bash
 make dev-frontend  
-# Or manually: cd frontend && npm run dev
 ```
 
 ### 6. Access the Application
@@ -143,39 +143,49 @@ Open your browser and navigate to:
 
 ## How It Works
 
-### 1. ADK Agent Architecture
+### 1. Smart Coordinator Agent Architecture
 
-The application now uses Google Agent Development Kit (ADK) with an intelligent coordinator system:
+The application uses a **single intelligent coordinator agent** that combines:
 
-1. **Coordinator Agent**: Analyzes incoming questions and decides the appropriate response method
-2. **Direct Answer Agent**: Handles personal questions, greetings, and basic knowledge without web search
-3. **Web Research Workflow**: Triggered only when current/specific information is needed
-4. **LlmAgent**: Core intelligence powered by Gemini 2.0 Flash
-5. **Intelligent Orchestration**: ADK manages the entire workflow based on question type
+1. **LLM-Powered Decision Making**: Uses natural language understanding to classify questions
+2. **Built-in Web Search**: Has tavily_research_tool integrated for real-time information
+3. **Direct Answer Capability**: Handles questions that don't require real-time information
+4. **Adaptive Response**: No hard-coded rules - LLM decides based on context
 
-#### Question Classification:
+#### Intelligent Question Classification:
 
-**Direct Answer (No Web Search):**
-- Personal introductions: "Tôi là Thái", "Mình tên Nam"
-- Greetings: "Xin chào", "Hello"
-- Basic math: "2+2=?", "Diện tích hình vuông"
-- Common knowledge: "Trái đất là gì?"
+Instead of rigid rules, the system uses **LLM reasoning** to determine response approach:
 
-**Web Research Required:**
-- Current news: "Tình hình kinh tế mới nhất"
-- Recent events: "Chính sách mới của chính phủ"
-- Live data: "Giá bitcoin hôm nay"
-- Specialized information requiring sources
+🧠 **LLM asks itself:**
+- "Does this question need real-time information?"
+- "Can I answer accurately with my existing knowledge?"
+- "Could this information change over time?"
+- "Is this a personal greeting or basic knowledge?"
 
-### 2. Research Pipeline
+**Examples of LLM reasoning:**
 
-The research tool (`conduct_comprehensive_research`) follows this process:
+✅ **Direct Answer** (LLM reasoning: "Static knowledge, doesn't change"):
+- "Chào bạn, tôi là Thái" → Personal introduction
+- "2+2=?" → Mathematical fact  
+- "Thủ đô Việt Nam là gì?" → Geographic fact
 
-1. **Query Analysis**: Analyzes user question and determines research strategy
-2. **Web Research**: Uses Tavily Search API for current information
-3. **Quality Analysis**: Evaluates research quality and completeness
-4. **Answer Synthesis**: Creates comprehensive response with Gemini
-5. **Source Attribution**: Includes relevant sources and citations
+🔍 **Web Research** (LLM reasoning: "Needs current data"):
+- "Thời tiết Hà Nội hôm nay" → Real-time weather
+- "Giá bitcoin hiện tại" → Live market data
+- "Tin tức mới nhất về AI" → Current events
+
+This approach is more **flexible**, **intelligent**, and **adaptive** than hard-coded rules.
+
+### 2. Workflow Process
+
+The coordinator agent follows this intelligent process:
+
+1. **Question Analysis**: Analyzes user question using LLM reasoning
+2. **Decision Making**: Decides between direct answer or web research
+3. **Direct Response**: For personal/basic questions, responds immediately
+4. **Web Research**: For current information, uses Tavily Search API
+5. **Answer Synthesis**: Creates comprehensive response in Vietnamese
+6. **Source Attribution**: Includes relevant sources and citations when applicable
 
 ### 3. Streaming Architecture
 
@@ -184,156 +194,116 @@ graph LR
     A[User Query] --> B[Frontend]
     B --> C[FastAPI Server]
     C --> D[ADK Runner]
-    D --> E[Research Agent]
-    E --> F[Research Tool]
-    F --> G[Tavily Search]
-    G --> H[Response Synthesis]
-    H --> I[SSE Stream]
-    I --> B
+    D --> E[Coordinator Agent]
+    E --> F{LLM Decision}
+    F -->|Direct| G[Immediate Response]
+    F -->|Research| H[Tavily Search]
+    H --> I[Response Synthesis]
+    G --> J[SSE Stream]
+    I --> J
 ```
 
-The application uses Server-Sent Events (SSE) for real-time streaming:
-- **generate_query**: Shows search query generation
-- **web_research**: Displays found sources  
-- **reflection**: Shows analysis progress
-- **finalize_answer**: Presents final response
-- **message**: Sends complete answer with sources
+## Testing
 
-### 3. Supported Features
+### Coordinator Agent Tests
 
-- **Weather Queries**: Real-time weather information
-- **News & Current Events**: Latest news and updates
-- **General Questions**: Knowledge-based Q&A
-- **Vietnamese Responses**: Natural language in Vietnamese
-- **Source Attribution**: Links to original sources
-- **Multiple Models**: Choose between Gemini 2.0/2.5 variants
+Test different types of questions to see how the coordinator agent responds:
 
-## Configuration
+```bash
+# Test coordinator functionality
+make test-coordinator
 
-### Model Selection
+# Test LLM reasoning with various question types
+make test-llm-reasoning
+```
 
-The application supports multiple Gemini models:
-- `gemini-2.0-flash`: Fast responses, good for general queries
-- `gemini-2.5-flash-preview-04-17`: Enhanced capabilities  
-- `gemini-2.5-pro-preview-05-06`: Most advanced reasoning
+**Example test cases:**
+- Personal questions: "Tôi là Thái", "Chào bạn"
+- Basic knowledge: "2+2=?", "Thủ đô Việt Nam"
+- Current information: "Thời tiết hôm nay", "Giá vàng hiện tại"
 
-### Research Intensity
+## Environment Variables
 
-Configure research depth:
-- **Low**: 1 search query, 1 research loop
-- **Medium**: 3 search queries, 3 research loops  
-- **High**: 5 search queries, 10 research loops
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `GEMINI_API_KEY` | Google Gemini API key | Yes | `AIza...` |
+| `TAVILY_API_KEY` | Tavily Search API key | Yes | `tvly-...` |
 
-### Prompts Customization
+## Development Commands
 
-Edit `backend/src/agent/prompts.py` to customize:
-- System instructions
-- Research prompts
-- Error messages
-- Model configurations
+| Command | Description |
+|---------|-------------|
+| `make dev` | Start both frontend and backend |
+| `make dev-backend` | Start backend only |
+| `make dev-frontend` | Start frontend only |
+| `make install-backend` | Install backend dependencies |
+| `make test-coordinator` | Test coordinator agent |
+| `make test-llm-reasoning` | Test LLM reasoning capability |
 
 ## API Endpoints
 
-### Core Endpoints
+### POST `/assistants/{assistant_id}/runs`
 
-- `POST /assistants/{id}/runs` - Create research session
-- `GET /health` - Health check with system status
-- `GET /` - API information and capabilities
+Create a new conversation run with the AI assistant.
 
-### Example API Usage
-
-```bash
-curl -X POST http://localhost:2024/assistants/agent/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"type": "human", "content": "Thời tiết Hà Nội hôm nay?", "id": "1"}],
-    "initial_search_query_count": 3,
-    "max_research_loops": 2,
-    "reasoning_model": "gemini-2.0-flash"
-  }'
+**Request Body:**
+```json
+{
+  "messages": [
+    {
+      "type": "user",
+      "content": "Thời tiết Hà Nội hôm nay thế nào?"
+    }
+  ],
+  "reasoning_model": "gemini-2.0-flash",
+  "initial_search_query_count": 3,
+  "max_research_loops": 3
+}
 ```
 
-## Development
+**Response:** Server-Sent Events stream with research progress and final answer.
 
-### Available Commands
+### GET `/health`
 
-```bash
-make help              # Show available commands
-make install-backend   # Install backend dependencies  
-make dev-frontend      # Start frontend dev server
-make dev-backend       # Start backend dev server
-make dev               # Start both servers
-```
-
-### File Structure
-
-- `server.py`: Main FastAPI application
-- `prompts.py`: AI prompts and configurations
-- `adk_agent.py`: Google ADK agent implementation
-- Frontend components in `frontend/src/components/`
-
-### Adding New Features
-
-1. **New Prompts**: Add to `prompts.py`
-2. **API Endpoints**: Extend `server.py`
-3. **UI Components**: Create in `frontend/src/components/`
-4. **Agent Logic**: Modify `adk_agent.py`
-
-## Deployment
-
-### Production Build
-
-1. **Build Frontend**:
-```bash
-cd frontend && npm run build
-```
-
-2. **Configure Environment**:
-```bash
-export GEMINI_API_KEY="your_production_key"
-```
-
-3. **Run Production Server**:
-```bash
-cd backend && python -m uvicorn src.agent.server:app --host 0.0.0.0 --port 2024
-```
-
-### Docker Deployment
-
-```bash
-docker build -t gemini-research-agent .
-docker run -e GEMINI_API_KEY="your_key" -p 2024:2024 gemini-research-agent
-```
+Check API health status and configuration.
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **API Key Error**: Ensure `GEMINI_API_KEY` is set correctly
-2. **Port Conflicts**: Change ports in `vite.config.ts` and `server.py`
-3. **Dependencies**: Run `pip install -e .` and `npm install`
-4. **Virtual Environment**: Activate with `source .venv/bin/activate`
+1. **API Key Not Working**
+   - Verify your API keys in `.env` file
+   - Check API key permissions on respective platforms
 
-### Debugging
+2. **Backend Won't Start**
+   - Ensure Python virtual environment is activated
+   - Check all dependencies are installed: `pip install -e .`
 
-- Check backend logs: `make dev-backend`
-- Test API directly: `curl http://localhost:2024/health`
-- Frontend proxy: Verify `vite.config.ts` proxy settings
+3. **Frontend Can't Connect**
+   - Verify backend is running on port 2024
+   - Check CORS configuration in server.py
+
+4. **No Web Search Results**
+   - Verify Tavily API key is valid
+   - Check internet connection
+   - Review Tavily account quota
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make changes and test thoroughly
-4. Submit a pull request
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes and test thoroughly
+4. Commit your changes: `git commit -am 'Add some feature'`
+5. Push to the branch: `git push origin feature/your-feature`
+6. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- **Google Agent Development Kit** for the AI framework
-- **Google Gemini** for the language models
-- **Tavily Search** for web research capabilities
-- **React** and **FastAPI** communities for excellent tools 
+- Google Agent Development Kit (ADK) team
+- Gemini API for powerful language models
+- Tavily for web search capabilities
+- Shadcn/ui for beautiful React components 
