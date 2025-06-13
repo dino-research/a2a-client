@@ -201,6 +201,7 @@ export default function App() {
   const handleStreamEvent = (data: {
     event_type?: string;
     data?: {
+      agent_name?: string;
       query_list?: string[];
       query?: string;
       status?: string;
@@ -263,6 +264,19 @@ export default function App() {
             : `Research quality: ${confidence}% - Need more information: ${(data.data?.follow_up_queries || []).join(", ")}`,
         };
       }
+    } else if (data.event_type === "remote_agent_call" && data.data?.agent_name) {
+      if (data.data?.answer) {
+        processedEvent = {
+          title: `${data.data?.agent_name}`,
+          data: `Answer: ${data.data?.answer}`,
+        };
+      } else {
+        processedEvent = {
+          title: `${data.data?.agent_name}`,
+          data: `Calling ${data.data?.agent_name} để tìm kiếm thông tin ...`,
+        };
+      }
+
     } else if (data.event_type === "finalize_answer") {
       if (data.data?.status === "synthesizing") {
         processedEvent = {
