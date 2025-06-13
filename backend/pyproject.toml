@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "ipykernel>=6.29.5",
     "tavily-python>=0.3.0",
+    "a2a-sdk>=0.2.7",
 ]
 
 

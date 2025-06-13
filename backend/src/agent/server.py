@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import asyncio
+from pprint import pformat
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -30,7 +31,8 @@ from prompts import (
 )
 
 # Import the research agent
-from adk_agent_workflow import create_research_agent, create_coordinator_agent
+# from adk_agent_workflow import create_research_agent, create_coordinator_agent
+from routing_agent import root_agent as routing_agent, get_root_agent
 
 try:
     from app import create_frontend_router
@@ -104,6 +106,39 @@ def format_stream_event(event_type: str, data: Dict, message_id: str = None) -> 
     }
     return f"data: {json.dumps(event)}\n\n"
 
+def _extract_response_text(response_content) -> str:
+    """Extract text from function response content."""
+    if isinstance(response_content, dict) and "result" in response_content:
+        task_result = response_content["result"]
+        if hasattr(task_result, 'artifacts') and task_result.artifacts:
+            text_parts = []
+            for artifact in task_result.artifacts:
+                if hasattr(artifact, 'parts') and artifact.parts:
+                    for part_item in artifact.parts:
+                        if hasattr(part_item, 'root') and hasattr(part_item.root, 'text'):
+                            text_parts.append(part_item.root.text)
+            return "\n".join(text_parts)
+        return str(task_result)
+    elif isinstance(response_content, dict) and "response" in response_content:
+        return response_content["response"]
+    return str(response_content)
+
+def _find_function_name(event) -> str:
+    """Find function name from event parts."""
+    if event.content and event.content.parts:
+        for part in event.content.parts:
+            if part.function_call:
+                return part.function_call.name
+    return None
+
+def _find_agent_name_from_event(event) -> str:
+    """Find agent name from function call args in event parts."""
+    if event.content and event.content.parts:
+        for part in event.content.parts:
+            if part.function_call and part.function_call.args:
+                return part.function_call.args.get('agent_name')
+    return None
+
 async def research_and_answer_with_agent(
     query: str, 
     user_id: str = "default_user", 
@@ -115,11 +150,17 @@ async def research_and_answer_with_agent(
     """Research query using ADK agent and provide streaming response."""
     try:
         # Create coordinator agent instead of research agent
-        research_agent = create_coordinator_agent(model)
+        # research_agent = create_coordinator_agent(model)
+        
+        # Get the routing agent (with lazy initialization if needed)
+        if routing_agent is None:
+            agent = await get_root_agent()
+        else:
+            agent = routing_agent
         
         # Create runner with the dynamic agent
         runner = Runner(
-            agent=research_agent,
+            agent=agent,
             app_name=APP_NAME,
             session_service=session_service
         )
@@ -156,351 +197,58 @@ async def research_and_answer_with_agent(
         if conversation_context:
             user_message = f"Bối cảnh cuộc hội thoại trước:\n{conversation_context}\n\nCâu hỏi hiện tại: {query}"
         
-        # Add effort level instructions to the user message
-        effort_instruction = ""
-        if initial_search_query_count == 1:
-            effort_instruction = "\n\nMức độ nghiên cứu: Thấp (1 truy vấn tìm kiếm, 1 vòng nghiên cứu)"
-        elif initial_search_query_count == 5:
-            effort_instruction = "\n\nMức độ nghiên cứu: Cao (5 truy vấn tìm kiếm, 10 vòng nghiên cứu tối đa)"
-        else:
-            effort_instruction = "\n\nMức độ nghiên cứu: Trung bình (3 truy vấy tìm kiếm, 3 vòng nghiên cứu)"
-        
-        user_message += effort_instruction
-        
         user_content = Content(role='user', parts=[Part(text=user_message)])
         
         # Variables to track the agent's response
         final_response_content = ""
         sources = []
-        research_step = "initial"
-        research_loops = 0  # Track research loops to enforce max_research_loops
-        event_count = 0
-        coordinator_decision = None  # Track coordinator decision
-        direct_answer_provided = False  # Track if direct answer was provided
         
         # Initial event to show timeline starts
-        yield format_stream_event("generate_query", {
-            "query": query,
-            "status": "analyzing_question"
-        })
+        # yield format_stream_event("generate_query", {
+        #     "query": query,
+        #     "status": "analyzing_question"
+        # })
+        
+        # Track current agent name for function responses
+        current_agent_name = None
         
         # Run the agent and process events
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=user_content
-        ):
-            event_count += 1
-            
-            # Handle workflow events (text responses from SequentialAgent)
-            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=user_content):
+            if event.content and event.content.parts:
+                # Collect text content from all responses
+                text_parts = [p.text for p in event.content.parts if p.text]
+                if text_parts:
+                    current_text = "".join(text_parts)
+                    if current_text.strip():
+                        final_response_content += current_text
+                
+                # Process function calls and responses
                 for part in event.content.parts:
-                    # Handle text responses from workflow agents
-                    if hasattr(part, 'text') and part.text:
-                        text_content = part.text.strip()
+                    if part.function_call:
+                        # Extract actual agent name from function args
+                        current_agent_name = part.function_call.args.get('agent_name', part.function_call.name)
+                        yield format_stream_event("remote_agent_call", {
+                            "agent_name": current_agent_name,
+                        })
+                    elif part.function_response:
+                        formatted_response_data = _extract_response_text(part.function_response.response)
+                        # Use the agent name from the most recent function call
+                        agent_name = current_agent_name or "Remote Agent"
                         
-                        # Detect different workflow stages based on content patterns
-                        try:
-                            # Check if this is a web research trigger
-                            if text_content.startswith('{') and 'web_research_needed' in text_content:
-                                try:
-                                    parsed_data = json.loads(text_content)
-                                    if parsed_data.get("action") == "web_research_needed":
-                                        # This means we need to trigger web research
-                                        yield format_stream_event("generate_query", {
-                                            "query": query,
-                                            "status": "needs_web_research",
-                                            "reasoning": parsed_data.get("reasoning", "")
-                                        })
-                                        
-                                        # This is a web research decision - let normal flow handle it
-                                        coordinator_decision = {"response_type": "web_research"}
-                                        
-                                        yield format_stream_event("generate_query", {
-                                            "query": query,
-                                            "status": "needs_web_research",
-                                            "reasoning": parsed_data.get("reasoning", "")
-                                        })
-                                        
-                                        # Continue normal flow - agent will handle research automatically
-                                except json.JSONDecodeError:
-                                    pass
-                                    
-                            # Try to parse as JSON (agent outputs)
-                            elif text_content.startswith('```json'):
-                                json_content = text_content.replace('```json', '').replace('```', '').strip()
-                                parsed_data = json.loads(json_content)
-                                
-                                # Handle coordinator decision (legacy support)
-                                if isinstance(parsed_data, dict) and "response_type" in parsed_data and coordinator_decision is None:
-                                    coordinator_decision = parsed_data
-                                    
-                                    if parsed_data["response_type"] == "direct_answer":
-                                        # Direct answer case
-                                        yield format_stream_event("generate_query", {
-                                            "query": query,
-                                            "status": "answering_directly",
-                                            "reasoning": parsed_data.get("reasoning", "")
-                                        })
-                                        
-                                        # Use direct answer if provided by coordinator
-                                        if "direct_answer" in parsed_data:
-                                            final_response_content = parsed_data["direct_answer"]
-                                            direct_answer_provided = True
-                                            yield format_stream_event("finalize_answer", {
-                                                "status": "direct_answer_ready",
-                                                "confidence": parsed_data.get("confidence", 0.9)
-                                            })
-                                    
-                                    elif parsed_data["response_type"] == "web_research":
-                                        # Web research case
-                                        yield format_stream_event("generate_query", {
-                                            "query": query,
-                                            "status": "needs_web_research",
-                                            "reasoning": parsed_data.get("reasoning", "")
-                                        })
-                                
-                                # Handle query generation stage (only if web research is needed)
-                                elif isinstance(parsed_data, list) and event_count <= 5 and coordinator_decision and coordinator_decision["response_type"] == "web_research":
-                                    yield format_stream_event("generate_query", {
-                                        "query_list": parsed_data
-                                    })
-                                
-                                # Handle research results
-                                elif isinstance(parsed_data, dict) and parsed_data.get("status") == "success":
-                                    if "sources" in str(parsed_data) or "content" in parsed_data:
-                                        yield format_stream_event("web_research", {
-                                            "sources_gathered": parsed_data.get("sources", []),
-                                            "query": query,
-                                            "status": "success"
-                                        })
-                                        if parsed_data.get("sources"):
-                                            sources.extend(parsed_data["sources"])
-                                
-                                # Handle quality analysis
-                                elif isinstance(parsed_data, dict) and "confidence" in parsed_data and "is_sufficient" in parsed_data:
-                                    yield format_stream_event("reflection", {
-                                        "is_sufficient": parsed_data.get("is_sufficient", True),
-                                        "confidence": parsed_data.get("confidence", 0.7),
-                                        "follow_up_queries": []
-                                    })
-                                
-                                # Handle refinement queries
-                                elif isinstance(parsed_data, list) and event_count > 5:
-                                    if parsed_data:  # Non-empty list means more research needed
-                                        yield format_stream_event("web_research", {
-                                            "query": "follow-up research",
-                                            "status": "refining"
-                                        })
-                                        research_loops += 1
-                                    else:  # Empty list means research is sufficient
-                                        yield format_stream_event("reflection", {
-                                            "is_sufficient": True,
-                                            "confidence": 0.8,
-                                            "reason": "No additional queries needed"
-                                        })
-                            
-                            # Handle direct answer (non-JSON text from coordinator)
-                            elif not text_content.startswith('```') and not text_content.startswith('{') and len(text_content) > 20:
-                                # This is likely a direct answer from the coordinator
-                                final_response_content = text_content
-                                direct_answer_provided = True
-                                yield format_stream_event("generate_query", {
-                                    "query": query,
-                                    "status": "answering_directly"
-                                })
-                                yield format_stream_event("finalize_answer", {
-                                    "status": "direct_answer_ready"
-                                })
-                                
-                        except json.JSONDecodeError:
-                            # Handle direct answer (non-JSON text)
-                            if len(text_content) > 20 and not text_content.startswith('{'):
-                                # This is likely a direct answer from the coordinator
-                                final_response_content = text_content
-                                direct_answer_provided = True
-                                yield format_stream_event("generate_query", {
-                                    "query": query,
-                                    "status": "answering_directly"
-                                })
-                                yield format_stream_event("finalize_answer", {
-                                    "status": "direct_answer_ready"
-                                })
-                    
-                    # Legacy support: Handle function calls if present
-                    elif hasattr(part, 'function_call') and part.function_call:
-                        tool_name = part.function_call.name
-
-                        
-                        if tool_name == "generate_initial_queries":
-
-                            yield format_stream_event("generate_query", {
-                                "query": query,
-                                "status": "generating"
-                            })
-                            
-                        elif tool_name == "web_research":
-                            yield format_stream_event("web_research", {
-                                "query": query,
-                                "status": "searching"
-                            })
-                            
-                        elif tool_name == "tavily_research_tool":
-                            yield format_stream_event("web_research", {
-                                "query": query,
-                                "status": "searching"
-                            })
-                            
-                        elif tool_name == "analyze_research_quality":
-                            yield format_stream_event("reflection", {
-                                "status": "analyzing"
-                            })
-                            
-                        elif tool_name == "iterative_refinement":
-                            # Check if we should continue research loops
-                            if research_loops < max_research_loops:
-                                yield format_stream_event("web_research", {
-                                    "query": "follow-up research",
-                                    "status": "refining"
-                                })
-                                research_loops += 1
-                            else:
-                                yield format_stream_event("reflection", {
-                                    "is_sufficient": True,
-                                    "confidence": 0.8,
-                                    "reason": f"Reached maximum research loops ({max_research_loops})"
-                                })
-                            
-                        elif tool_name == "finalize_answer":
-                            yield format_stream_event("finalize_answer", {
-                                "status": "synthesizing"
-                            })
-                    
-                    # Handle function responses (tool responses)
-                    elif hasattr(part, 'function_response') and part.function_response:
-                        tool_name = part.function_response.name
-                        tool_result = part.function_response.response
-
-                        
-                        if tool_name == "generate_initial_queries":
-
-                            if tool_result and 'result' in tool_result:
-                                queries = tool_result['result']
-                                if isinstance(queries, list):
-                                    yield format_stream_event("generate_query", {
-                                        "query_list": queries
-                                    })
-                                else:
-                                    yield format_stream_event("generate_query", {
-                                        "query_list": [str(queries)]
-                                    })
-                            else:
-                                yield format_stream_event("generate_query", {
-                                    "query_list": [query]
-                                })
-                                
-                        elif tool_name == "web_research":
-                            if tool_result and isinstance(tool_result, dict):
-                                if tool_result.get("sources"):
-                                    sources.extend(tool_result["sources"])
-                                    yield format_stream_event("web_research", {
-                                        "sources_gathered": tool_result["sources"],
-                                        "query": tool_result.get("query", query),
-                                        "status": "success"
-                                    })
-                                else:
-                                    yield format_stream_event("web_research", {
-                                        "sources_gathered": [],
-                                        "query": query,
-                                        "status": "completed"
-                                    })
-                            else:
-                                yield format_stream_event("web_research", {
-                                    "sources_gathered": [],
-                                    "query": query,
-                                    "status": "completed"
-                                })
-                                
-                        elif tool_name == "tavily_research_tool":
-                            if tool_result and isinstance(tool_result, dict):
-                                if tool_result.get("sources"):
-                                    sources.extend(tool_result["sources"])
-                                    yield format_stream_event("web_research", {
-                                        "sources_gathered": tool_result["sources"],
-                                        "query": tool_result.get("query", query),
-                                        "status": "success"
-                                    })
-                                else:
-                                    yield format_stream_event("web_research", {
-                                        "sources_gathered": [],
-                                        "query": query,
-                                        "status": "completed"
-                                    })
-                            else:
-                                yield format_stream_event("web_research", {
-                                    "sources_gathered": [],
-                                    "query": query,
-                                    "status": "completed"
-                                })
-                                
-                        elif tool_name == "analyze_research_quality":
-                            confidence = 0.7  # Default confidence
-                            is_sufficient = True
-                            follow_up_queries = []
-                            
-                            if tool_result and isinstance(tool_result, dict):
-                                confidence = tool_result.get("confidence", 0.7)
-                                status = tool_result.get("status", "sufficient")
-                                recommendation = tool_result.get("recommendation", "finalize_answer")
-                                is_sufficient = recommendation == "finalize_answer"
-                            
-                            yield format_stream_event("reflection", {
-                                "is_sufficient": is_sufficient,
-                                "confidence": confidence,
-                                "follow_up_queries": follow_up_queries
-                            })
-                            
-                        elif tool_name == "iterative_refinement":
-                            if tool_result and 'result' in tool_result:
-                                follow_up_queries = tool_result['result']
-                                if isinstance(follow_up_queries, list) and follow_up_queries:
-                                    yield format_stream_event("reflection", {
-                                        "is_sufficient": False,
-                                        "confidence": 0.5,
-                                        "follow_up_queries": follow_up_queries
-                                    })
-                                    
-                        elif tool_name == "finalize_answer":
-                            if tool_result:
-                                final_response_content = str(tool_result)
-                                yield format_stream_event("finalize_answer", {
-                                    "answer": final_response_content,
-                                    "sources": sources,
-                                    "confidence": 0.8,
-                                    "status": "completed"
-                                })
-                    
-                    # Handle final text response
-                    elif hasattr(part, 'text') and part.text:
-                        # Accumulate text content
-                        text_content = part.text.strip()
-                        if text_content and len(text_content) > 10:  # Meaningful content
-                            if not final_response_content:
-                                final_response_content = text_content
-                            else:
-                                final_response_content += " " + text_content
-                            
-                            # If this looks like a complete response, send it immediately
-                            if (text_content.endswith('.') or text_content.endswith('!') or text_content.endswith('?')) and len(text_content) > 50:
-                                message_id = f"msg_{datetime.now().timestamp()}"
-                                final_message = {
-                                    "type": "ai", 
-                                    "content": final_response_content,
-                                    "id": message_id,
-                                    "sources": sources
-                                }
-                                yield format_stream_event("message", final_message, message_id)
-                                return
+                        yield format_stream_event("remote_agent_call", {
+                            "agent_name": agent_name,
+                            "answer": formatted_response_data
+                        })
+            
+            # Handle escalation
+            if event.is_final_response() and event.actions and event.actions.escalate:
+                final_response_content += f"Agent escalated: {event.error_message or 'No specific message.'}"
+            
+            
+        # Send finalize event before final message
+        yield format_stream_event("finalize_answer", {
+            "status": "synthesizing"
+        })
         
         # If we reach here, send final response if we have one
         if final_response_content:
@@ -509,8 +257,14 @@ async def research_and_answer_with_agent(
                 "type": "ai",
                 "content": final_response_content,
                 "id": message_id,
-                "sources": sources if not direct_answer_provided else []  # Direct answers don't need sources
+                "sources": sources
             }
+            
+            # Send finalize completion event
+            yield format_stream_event("finalize_answer", {
+                "status": "completed"
+            })
+            
             yield format_stream_event("message", final_message, message_id)
         else:
             # Fallback message if no response was captured
@@ -521,6 +275,12 @@ async def research_and_answer_with_agent(
                 "content": error_message,
                 "id": message_id
             }
+            
+            # Send finalize completion event even for errors
+            yield format_stream_event("finalize_answer", {
+                "status": "completed"
+            })
+            
             yield format_stream_event("message", error_response, message_id)
         
     except Exception as e:
