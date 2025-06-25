@@ -298,7 +298,7 @@ def _get_initialized_routing_agent_sync() -> Agent:
         routing_agent_instance = await RoutingAgent.create(
             remote_agent_addresses=[
                 # os.getenv('AIR_AGENT_URL', 'http://localhost:10002'),
-                os.getenv('WEA_AGENT_URL', 'http://localhost:10001'),
+                os.getenv('SERENA_AGENT_URL', 'http://localhost:10101'),
             ]
         )
         return routing_agent_instance.create_agent()
