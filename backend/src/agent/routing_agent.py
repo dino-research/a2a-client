@@ -342,8 +342,7 @@ async def get_root_agent() -> Agent:
     if _root_agent is None:
         routing_agent_instance = await RoutingAgent.create(
             remote_agent_addresses=[
-                # os.getenv('AIR_AGENT_URL', 'http://localhost:10002'),
-                os.getenv('WEA_AGENT_URL', 'http://localhost:10001'),
+                os.getenv('SERENA_AGENT_URL', 'http://localhost:10101'),
             ]
         )
         _root_agent = routing_agent_instance.create_agent()
